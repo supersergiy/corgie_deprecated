@@ -78,10 +78,11 @@ def create_data_backend_from_args(name, args_dict, reference=None):
         backend = backend_type(**backend_args)
         return backend
 
-def create_layer_from_args(name, args_dict, reference=None, new_layer=False,
+def create_layer_from_args(name, args_dict, reference=None,
         **kwargs):
-    if '{}_path'.format(name) not  in args_dict:
-        return reference
+    if '{}_path'.format(name) not in args_dict or \
+            args_dict['{}_path'.format(name)] is None:
+        return None
     else:
         backend_reference = None
         if reference is not None:

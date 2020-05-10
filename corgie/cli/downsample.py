@@ -15,7 +15,6 @@ from corgie.argparsers import layer_argument
 class DownsampleJob(scheduling.Job):
     def __init__(self, src_layer, dst_layer, mip_start, mip_end,
                  bcube, chunk_xy, chunk_z, mips_per_task):
-        super().__init__(self)
         self.src_layer = src_layer
         self.dst_layer = dst_layer
         self.mip_start = mip_start
@@ -24,15 +23,13 @@ class DownsampleJob(scheduling.Job):
         self.chunk_xy = chunk_xy
         self.chunk_z = chunk_z
         self.mips_per_task = mips_per_task
-        self.task_generator = self.create_task_generator()
 
         self.dst_layer.declare_write_region(self.bcube,
                 mips=range(self.mip_start, self.mip_end + 1))
 
-    def get_tasks(self):
-        return next(self.task_generator)
+        super().__init__()
 
-    def create_task_generator(self):
+    def task_generator(self):
         for mip in range(self.mip_start, self.mip_end, self.mips_per_task):
             this_mip_start = mip
             this_mip_end = min(self.mip_end, mip + self.mips_per_task)
@@ -72,7 +69,7 @@ class DownsampleTask(scheduling.Task):
         self.bcube = bcube
 
     def __call__(self):
-        src_data = self.src_layer.read(self.bcube, mip=self.mip_start, dtype="float")
+        src_data = self.src_layer.read(self.bcube, mip=self.mip_start)
         # How to downsample depends on layer type.
         # Images are avg pooled, masks are max pooled, segmentation is...
         downsampler = self.src_layer.get_downsampler()
@@ -120,9 +117,13 @@ def downsample(ctx, mip_start, mip_end, chunk_xy,
 
     dst_layer = argparsers.create_layer_from_args('dst', kwargs,
             reference=src_layer)
+    if dst_layer is None:
+        # TODO: print a warning
+        dst_layer = src_layer
+        dst_layer.readonly = False
 
     bcube = get_bcube_from_coords(start_coord, end_coord, coord_mip)
-    # define the job to be done
+
     downsample_job = DownsampleJob(src_layer, dst_layer,
                                    mip_start, mip_end,
                                    bcube=bcube,
