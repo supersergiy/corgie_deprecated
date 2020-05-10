@@ -1,25 +1,30 @@
-import numpy as np
-from math import floor, ceil
-from utilities.helpers import crop
-from copy import deepcopy
 import json
+from math import floor, ceil
+from copy import deepcopy
+import numpy as np
 
-def deserialize_bbox(s):
-  contents = json.loads(s)
-  return BoundingBox(contents['m0_x'][0], contents['m0_x'][1],
-                     contents['m0_y'][0], contents['m0_y'][1], mip=0, max_mip=contents['max_mip'])
+from corgie import scheduling
+from corgie.helpers import crop
 
+def get_bcube_from_coords(start_coord, end_coord, coord_mip,
+        cant_be_empty=True):
+    xs, ys, zs = [int(i) for i in start_coord.split(',')]
+    xe, ye, ze = [int(i) for i in end_coord.split(',')]
+    bcube = BoundingCube(xs, xe, ys, ye, zs, ze, coord_mip)
+
+    if cant_be_empty and bcube.area() * bcube.z_size() == 0:
+        raise Exception("Attempted creation of an empty bounding \
+                when 'cant_be_empty' flag is set to True")
+
+    return bcube
+
+@scheduling.sendable
 class BoundingCube:
-    def __init__(self, xs, xe, ys, ye, zs, ze, mip, max_mip=12):
-        self.max_mip = max_mip
-        scale_factor = 2**mip
-        self.set_m0_xy(xs*scale_factor, xe*scale_factor,
-                       ys*scale_factor, ye*scale_factor)
-        self.z = (zs, ze)
+    def __init__(self, xs, xe, ys, ye, zs, ze, mip):
+        self.reset_coords(xs, xe, ys, ye, zs, ze, mip=mip)
 
     def serialize(self):
         contents = {
-          "max_mip": self.max_mip,
           "m0_x": self.m0_x,
           "m0_y": self.m0_y,
           "z": self.z,
@@ -37,7 +42,7 @@ class BoundingCube:
                             contents['z'][0],
                             contents['z'][1],
                             mip=0,
-                            max_mip=contents['max_mip'])
+                            )
 
     # TODO
     # def contains(self, other):
@@ -46,6 +51,24 @@ class BoundingCube:
     def get_bounding_pts(self):
         return (self.m0_x[0], self.m0_y[0], self.z[0]), \
                (self.m0_x[1], self.m0_y[1], self.z[1])
+
+    def contains(self, other):
+        if self.m0_y[1] < other.m0_y[1]:
+            return False
+        if self.m0_x[1] < other.m0_x[1]:
+            return False
+        if self.z[1] < other.z[1]:
+            return False
+
+        if other.m0_x[0] < self.m0_x[0]:
+            return False
+        if other.m0_y[0] < self.m0_y[0]:
+            return False
+        if other.z[0] < self.z[0]:
+            return False
+
+        return True
+
 
     # TODO: delete?
     def intersects(self, other):
@@ -64,26 +87,24 @@ class BoundingCube:
             return False
         return True
 
-    def set_m0(self, xs, xe, ys, ye):
-        self.m0_x = (int(xs), int(xe))
-        self.m0_y = (int(ys), int(ye))
-        self.m0_x_size = int(xe - xs)
-        self.m0_y_size = int(ye - ys)
+    def reset_coords(self, xs, xe, ys, ye, zs, ze, mip=0):
+        scale_factor = 2**mip
+        self.m0_x = (int(xs * scale_factor), int(xe * scale_factor))
+        self.m0_y = (int(ys * scale_factor), int(ye * scale_factor))
+        self.z = (zs, ze)
 
     def get_offset(self, mip=0):
         scale_factor = 2**mip
-        return (self.m0_x[0] / scale_factor + self.m0_x_size / 2 / scale_factor,
-                self.m0_y[0] / scale_factor + self.m0_y_size / 2 / scale_factor)
+        return (self.m0_x[0] / scale_factor + self.x_size(mip=0) / 2 / scale_factor,
+                self.m0_y[0] / scale_factor + self.y_size(mip=0) / 2 / scale_factor)
 
     def x_range(self, mip):
-        assert(mip <= self.max_mip)
         scale_factor = 2**mip
         xs = floor(self.m0_x[0] / scale_factor)
         xe = ceil(self.m0_x[1] / scale_factor)
         return (xs, xe)
 
     def y_range(self, mip):
-        assert(mip <= self.max_mip)
         scale_factor = 2**mip
         ys = floor(self.m0_y[0] / scale_factor)
         ye = ceil(self.m0_y[1] / scale_factor)
@@ -92,13 +113,16 @@ class BoundingCube:
     def z_range(self):
         return self.z
 
+    def area(self, mip=0):
+        x_size = self.x_size(mip)
+        y_size = self.y_size(mip)
+        return x_size * y_size
+
     def x_size(self, mip):
-        assert(mip <= self.max_mip)
         x_range = self.x_range(mip)
         return int(x_range[1] - x_range[0])
 
     def y_size(self, mip):
-        assert(mip <= self.max_mip)
         y_range = self.y_range(mip)
         return int(y_range[1] - y_range[0])
 
@@ -109,11 +133,6 @@ class BoundingCube:
     def size(self, mip=0):
         return self.x_size(mip=mip), self.y_size(mip=mip), self.z_size()
 
-    def check_mips(self):
-        for m in range(1, self.max_mip + 1):
-            if self.m0_x_size % 2**m != 0:
-                raise Exception('Bounding box problem at mip {}'.format(m))
-
     def crop(self, crop_xy, mip):
         scale_factor = 2**mip
         m0_crop_xy = crop_xy * scale_factor
@@ -121,7 +140,6 @@ class BoundingCube:
                     self.m0_x[1] - m0_crop_xy,
                     self.m0_y[0] + m0_crop_xy,
                     self.m0_y[1] - m0_crop_xy)
-        self.check_mips()
 
     def uncrop(self, crop_xy, mip):
         """Uncrop the bounding box by crop_xy at given MIP level
@@ -132,7 +150,6 @@ class BoundingCube:
                     self.m0_x[1] + m0_crop_xy,
                     self.m0_y[0] - m0_crop_xy,
                     self.m0_y[1] + m0_crop_xy)
-        self.check_mips()
 
     def zeros(self, mip):
         return np.zeros((self.x_size(mip), self.y_size(mip), self.z_size()),
@@ -162,7 +179,8 @@ class BoundingCube:
         return False
 
     def __str__(self, mip=0):
-        return "{}, {}, {}".format(self.x_range(mip), self.y_range(mip),
+        return "[MIP {}] {}, {}, {}".format(
+                mip, self.x_range(mip), self.y_range(mip),
                 self.z_range())
 
     def __repr__(self):

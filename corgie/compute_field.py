@@ -1,7 +1,7 @@
-from cv_types import CV_TYPE_LIST, ImgCV, MaskCV, FieldCV
-from jobs import JobWithDependencies, JobWithoutDependencies
+import corgie import scheduling
+from corgie.layers import CV_TYPE_LIST, ImgCV, MaskCV, FieldCV
 
-class ApplyComputeFieldModelJob(JobWithDependencies):
+class ApplyComputeFieldModelJob(scheduling.job):
     def __init__(self, model_name, mode_params, mip_in, mip_out,
                 src_sec, tgt_sec, dst_domain,
                 img_domains, mask_domains=[],
@@ -21,8 +21,8 @@ class ApplyComputeFieldModelJob(JobWithDependencies):
         self.dst_domain = dst_domain
 
     def __call__(self, src_sec, tgt_sec, dst_domain):
-        prepare_data_job_list = self.get_prepare_data_job_list()
-        yield prepare_data_job_list
+        yield from self.prepare_data()
+        yield scheduling.wait_until_done
 
         # 1. clean up src_sec and tgt_sec from unneeded fields :
         #        leave the specified images and masks, and all fields
@@ -34,11 +34,7 @@ class ApplyComputeFieldModelJob(JobWithDependencies):
         #    return it
 
 
-    def get_prepare_data_job_list(self):
-        # we assume that these downsampling tasks have
-        # no dependencies between them, and that each is
-        # a JobWithoutDependencies
-        job_list = []
+    def get_prepare_data(self):
         for sec in [self.src_sec, self.tgt_sec]:
             for cv_type in [ImgCV, MaskCV, FieldCV]:
                 if cv_type == FieldCV:
@@ -47,7 +43,8 @@ class ApplyComputeFieldModelJob(JobWithDependencies):
                     domain_list = self.domains[cv_type]
 
                 # TODO: have custom, non-default downsamplers per domain
-                downsample_job_constructor = cv_type.get_downsample_job_constructor
+                downsample_job_constructor = \
+                        cv_type.get_downsample_job_constructor
 
                 for domain in domain_list:
                     downsample_tasks = None
@@ -66,7 +63,7 @@ class ApplyComputeFieldModelJob(JobWithDependencies):
                                 sec[cv_type][domain],
                                 start_mip=start_mip,
                                 end_mip=self.mip_in)
-                            job_list.append(downsample_job)
+                            yield downsample_job
 
                     if cv_type in [MaskCV, FieldCV]:
                         # has to have data at this MIP or Above
@@ -76,8 +73,7 @@ class ApplyComputeFieldModelJob(JobWithDependencies):
                                 sec[cv_type][domain],
                                 start_mip=start_mip,
                                 end_mip=self.mip_in)
-                            job_list.append(downsample_job)
-        return job_list
+                            yield downsample_job
 
 
 def ComputeFieldPatchTask:
@@ -96,11 +92,11 @@ class ComputeFieldJob():
     def prepare_data(self, src_sec, dst_sec, src_field_domain, dst_image_domain):
         pass
 
-    def get_task_gen(self):
+    def __call__(self):
         raise NotImplementedError
 
 
-class MultistageComputeFieldMethod(MethodBase):
+def MultistageComputeFieldFactory(compute_field_stages):
     def __init__(self, stages):
         self.stages = stages
 
@@ -110,12 +106,18 @@ class MultistageComputeFieldMethod(MethodBase):
             result.extend(s.get_needed_mips())
         return result
 
-    def get_task_gen(self, src_sec, dst_sec, src_field_domain, dst_image_domain):
-        def multistage_task_gen():
-            for s in self.stages:
-                task_gen = s.get_task_gen()
-                for tasks in task_gen:
-                    yield tasks
+    def __call__(self, src_sec, dst_sec, dst_field_domain):
+        class MultistageComputeFieldJob(scheduling.Job):
+            def __init__(self):
+                self.src_sec = src_sec
+                self.dst_sec = dst_sec
+                self.dst_field_domain = dst_field_domain
+                self.stages =
+
+                for s in self.stages:
+                    task_gen = s.get_task_gen()
+                    for tasks in task_gen:
+                        yield tasks
 
                 # if it is that simple, it should be a general "Sequence" task
                 # Stage 1 needs images at the right MIP, pre-existing field
@@ -126,6 +128,7 @@ class MultistageComputeFieldMethod(MethodBase):
                 # should i combine stage1 and 2 fields or leave them separate?
 
                 # maybe re-compute encodings -- ncc? <- l8r
+        return MoltistageComputeFieldJob
 
 
 

@@ -1,8 +1,9 @@
 import copy
-from .fields  import img_to_field_info
-from .stack   import Stack, FieldDomain
-from .copy    import get_copy_stack_tasks
-from .jobs    import JobWithDependencies, JobWithoutDependencies
+
+from corgie import scheduling
+from corgie.fields  import img_to_field_info
+from corgie.stack   import Stack, FieldDomain
+from corgie.cli.copy    import get_copy_stack_tasks
 
 def align_block(scheduler, input_stack, output_stack, align_method,
         render_method, copy_start, backwards, write_info):
@@ -22,7 +23,7 @@ def align_block_bidirectional(scheduler, input_stack, output_stack, align_method
         render_method, copy_start, backwards, write_info):
     raise NotImplementedError
 
-class AlignBlockJob(JobWithDependencies):
+class AlignBlockJob(scheduling.Job):
     def __init__(input_stack,
                  output_stack
                  compute_field_method,
@@ -66,8 +67,8 @@ class AlignBlockJob(JobWithDependencies):
                                dst_cv=dst_cv,
                                needed_mips=needed_mips,
                                offset=None)
-            assert isinstance(copy_job, JobWithoutDependencies)
             yield copy_job
+            yield scheduling.wait_until_done
 
         this_aligned_sec = start_sec
 
@@ -76,13 +77,13 @@ class AlignBlockJob(JobWithDependencies):
             prev_alinged_sec = self.this_aligned_sec
             this_alinged_sec = self.output_stack.z_cutout(z, z + 1)
 
-            # compute field can be done in stages
             compute_field_job = compute_field_method(
                     src_sec=curr_sec,
                     tgt_sec=prev_aligned_sec,
                     dst_domain='alignment_field')
 
             yield compute_field_job
+            yield scheduling.wait_until_done
 
             render_job = render_method(
                     src_sec=curr_sec,
@@ -92,5 +93,6 @@ class AlignBlockJob(JobWithDependencies):
                     )
 
             yield render_job
+            yield scheduling.wait_until_done
 
 
