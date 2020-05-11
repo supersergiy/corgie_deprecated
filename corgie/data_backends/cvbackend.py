@@ -9,6 +9,8 @@ from torch.nn.functional import interpolate
 
 from corgie import layers
 
+from corgie.log import logger as corgie_logger
+
 from corgie.mipless_cloudvolume import MiplessCloudVolume
 from corgie.data_backends.base import DataBackendBase, BaseLayerBackend, \
         register_backend
@@ -21,9 +23,11 @@ class CVDataBackend(DataBackendBase):
 
 class CVLayerBase(BaseLayerBackend):
     def __init__(self, path, backend, reference=None, **kwargs):
-        super().__init__(path, **kwargs)
+        super().__init__(**kwargs)
+        self.path = path
         self.cv = MiplessCloudVolume(path)
         self.backend = backend
+
         try:
             self.cv.get_info()
         except cv.exceptions.InfoUnavailableError as e:
@@ -34,6 +38,12 @@ class CVLayerBase(BaseLayerBackend):
 
                 info['num_channels'] = self.get_num_channels()
                 info['data_type'] = self.get_data_type()
+                if not self.supports_voxel_offset():
+                    for scale in info['scales']:
+                        scale['voxel_offset'] = [0, 0, 0]
+                if not self.supports_chunking():
+                    for scale in info['scales']:
+                        scale['chunk_sizes'] = [[1, 1, 1]]
 
                 self.cv = MiplessCloudVolume(path,
                         info=info)
@@ -46,30 +56,50 @@ class CVLayerBase(BaseLayerBackend):
         return self.backend.create_layer(path=sublayer_path, layer_type=layer_type,
                 reference=self, **kwargs)
 
-    def read_backend(self, bcube, mip):
+    def read_backend(self, bcube, mip,
+            channel_start=None, channel_end=None):
+        if channel_start is None:
+            channel_start = 0
+        if channel_end is None:
+            channel_end = self.cv[mip].shape[-1]
+
         x_range = bcube.x_range(mip)
         y_range = bcube.y_range(mip)
         z_range = bcube.z_range()
 
+        corgie_logger.debug("READ from {}: \n   x: {}, y: {}, z: {}, chan: {}, MIP: {}".format(
+            str(self), x_range, y_range, z_range, (channel_start, channel_end), mip))
         data = self.cv[mip][x_range[0]:x_range[1],
                      y_range[0]:y_range[1],
-                     z_range[0]:z_range[1]]
+                     z_range[0]:z_range[1],
+                     channel_start:channel_end]
         data = np.transpose(data, (2,3,0,1))
         return data
 
     def write_backend(self, data, bcube, mip,
             channel_start=None, channel_end=None):
-        data = np.transpose(data, (2,3,0,1))
+        if channel_start is None:
+            channel_start = 0
+        if channel_end is None:
+            channel_end = self.cv[mip].shape[-1]
 
         x_range = bcube.x_range(mip)
         y_range = bcube.y_range(mip)
         z_range = bcube.z_range()
 
+        data = np.transpose(data, (2,3,0,1))
+
+        corgie_logger.debug("Write to {}: \n x: {}, y: {}, z: {}, chan: {}, MIP: {}".format(
+            str(self), x_range, y_range, z_range, (channel_start, channel_end), mip))
+        import pdb; pdb.set_trace()
         self.cv[mip].autocrop = True
         self.cv[mip][x_range[0]:x_range[1],
                      y_range[0]:y_range[1],
-                     z_range[0]:z_range[1]] = data
+                     z_range[0]:z_range[1],
+                     channel_start:channel_end] = data
         self.cv[mip].autocrop = False
+        test_data = self.read_backend(bcube, mip, channel_start, channel_end)
+
 
     def get_info(self):
         return self.cv.get_info()
@@ -108,9 +138,6 @@ class CVImgLayer(CVLayerBase, layers.ImgLayer):
     def __init__(self, *kargs, **kwargs):
         super().__init__(*kargs, **kwargs)
 
-    def get_default_data_type(self):
-        return 'uint8'
-
 
 @CVDataBackend.register_layer_type_backend("field")
 class CVFieldLayer(CVLayerBase, layers.FieldLayer):
@@ -125,36 +152,14 @@ class CVFieldLayer(CVLayerBase, layers.FieldLayer):
                     )
         self.backend_dtype = backend_dtype
 
-    def get_default_data_type(self):
-        return 'float32'
-
 
 @CVDataBackend.register_layer_type_backend("mask")
 class CVMaskLayer(CVLayerBase, layers.MaskLayer):
     def __init__(self, *kargs, **kwargs):
         super().__init__(*kargs, **kwargs)
 
-    def get_default_data_type(self):
-        return 'uint8'
-
 
 @CVDataBackend.register_layer_type_backend("section_value")
 class CVSectionValueLayer(CVLayerBase, layers.SectionValueLayer):
     def __init__(self, *kargs, **kwargs):
         super().__init__(*kargs, **kwargs)
-
-    def read_backend(self, bcube, mip):
-        # Single values per section are always stored
-        # in (0, 0) xy coordinate
-        new_bcube = copy.deepcopy(bcube)
-        new_bcube.set_m0(0, 1, 0, 1)
-        return super().read_backend(new_bcube, mip)
-
-    def write_backend(self, data_np, bcube, mip, **kwargs):
-        assert data_np.size == bcube.z_size()
-        # Single values per section are always stored
-        # in (0, 0) xy coordinate
-        new_bcube = copy.deepcopy(bcube)
-        new_bcube.set_m0(0, 1, 0, 1)
-        return super().write_inner(data_np, new_bcube, mip, **kwargs)
-

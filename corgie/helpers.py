@@ -1,13 +1,19 @@
 def crop(**kwargs):
     raise NotImplementedError
 
-def cast_tensor_type(tensor, dtype):
+def expand_to_dims(tens, dims):
+    tens_dims = len(tens.shape)
+    assert (tens_dims) <= dims
+    tens = tens[(None, ) * (dims - tens_dims)]
+    return tens
+
+def cast_tensor_type(tens, dtype):
     '''
-        tensor: pytorch tensor
+        tens: pytorch tens
         dtype: string, eg 'float', 'int', 'byte'
     '''
     if dtype is not None:
-        assert hasattr(tensor, dtype)
-        return getattr(tensor, dtype)()
+        assert hasattr(tens, dtype)
+        return getattr(tens, dtype)()
     else:
-        return tensor
+        return tens

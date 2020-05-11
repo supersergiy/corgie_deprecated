@@ -1,5 +1,9 @@
 import torch
 
+from corgie import constants, exceptions
+from corgie import helpers
+
+
 STR_TO_LTYPE_DICT  = dict()
 
 
@@ -30,22 +34,27 @@ class BaseLayerType:
         data_np = self.read_backend(**kwargs)
         # TODO: if np type is unit32, convert it to int64
         data_tens = torch.as_tensor(data_np, device=self.device)
-        data_tens = cast_tensor_type(data_tens, dtype)
+        data_tens = helpers.cast_tensor_type(data_tens, dtype)
         return data_tens
 
     def write(self, data_tens, **kwargs):
         if self.readonly:
             raise Exception("Attempting to write into a readonly layer {}".format(str(self)))
+        data_tens = helpers.expand_to_dims(data_tens, 4)
         data_np = data_tens.data.cpu().numpy().astype(
                 self.get_data_type()
                 )
+
         self.write_backend(data_np, **kwargs)
 
-    def read_backend(self, *kargs, **kwargs):
-        raise NotImplementedError
+    def supports_voxel_offset(self):
+        return True
 
-    def write_backend(self, *kargs, **kwargs):
-        raise NotImplementedError
+    def supports_chunking(self):
+        return True
+
+    def indexing_scheme(self, index, channel_start, channel_end, **kwargs):
+        return index
 
     def get_downsampler(self, *kargs, **kwargs):
         raise NotImplementedError
@@ -55,11 +64,3 @@ class BaseLayerType:
 
     def get_num_channels(self, *kargs, **kwargs):
         raise NotImplementedError
-
-    def convert_data_to_backend(self, *kars, **kwargs):
-        raise NotImplementedError
-
-    def convert_data_to_backend(self, *kars, **kwargs):
-        raise NotImplementedError
-
-

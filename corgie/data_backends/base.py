@@ -1,9 +1,9 @@
 import torch
 
-from corgie import constants, exceptions
+from corgie import exceptions
+
+from corgie.log import logger as corgie_logger
 from corgie.layers import get_layer_types, str_to_layer_type
-from corgie.helpers import cast_tensor_type
-from corgie.boundingcube import BoundingCube
 
 #TODO: DEFNITELY need a full blown cache.
 
@@ -46,12 +46,15 @@ class DataBackendBase:
             raise Exception("Layer type {} is not \
                     implemented for {} backend".format(layer_type, type(self)))
 
+        corgie_logger.debug("Creating layer '{}' on device '{}' with reference '{}'...".format(
+                path, self.device, reference
+                ))
         layer = self.layer_constr_dict[layer_type](path, device=self.device,
                 reference=reference,
                 backend=self,
                 *kargs,
                 **kwargs)
-
+        corgie_logger.debug("Done")
         return layer
 
     @classmethod

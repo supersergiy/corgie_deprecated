@@ -1,6 +1,12 @@
+import copy
+
 import torch
 
-from corgie import scheduling
+from corgie import scheduling, constants, exceptions
+
+from corgie.log import logger as corgie_logger
+
+from corgie.boundingcube import BoundingCube
 from corgie.layers.base import register_layer_type, BaseLayerType
 
 class VolumetricLayer(BaseLayerType):
@@ -19,13 +25,15 @@ class VolumetricLayer(BaseLayerType):
         return self.mip_has_data[mip]
 
     def read(self, bcube, mip, **kwargs):
+        indexed_bcube = self.indexing_scheme(bcube, **kwargs)
         if not self.has_data(mip):
             raise exceptions.NoMipDataException(self.path, mip)
-        return super().read(bcube=bcube, mip=mip, **kwargs)
+        return super().read(bcube=indexed_bcube, mip=mip, **kwargs)
 
     def write(self, data_tens, bcube, mip, **kwargs):
         self.check_write_region(bcube, mip)
-        super().write(data_tens=data_tens, bcube=bcube, mip=mip, **kwargs)
+        indexed_bcube = self.indexing_scheme(bcube, **kwargs)
+        super().write(data_tens=data_tens, bcube=indexed_bcube, mip=mip, **kwargs)
         self.mip_has_data[mip] = True
 
     def check_write_region(self, bcube, mip):
@@ -38,9 +46,9 @@ class VolumetricLayer(BaseLayerType):
                                 self.declared_write_bcube, self.declared_write_mips,
                             bcube, mip))
 
-    def declare_write_region(self, bcube, mips):
+    def declare_write_region(self, bcube, mips, **kwargs):
         self.declared_write_mips = list(mips)
-        self.declared_write_bcube = bcube
+        self.declared_write_bcube = indexed_bcube
 
     def break_bcube_into_chunks(self, bcube, chunk_xy, chunk_z, mip):
         """Default breaking up of a bcube into smaller bcubes (chunks).
@@ -50,9 +58,11 @@ class VolumetricLayer(BaseLayerType):
            chunk_size: tuple for dimensions of chunk that bbox will be broken into
            mip: int for MIP level at which chunk_xy is dspecified
         """
-        x_range = bcube.x_range(mip=mip)
-        y_range = bcube.y_range(mip=mip)
-        z_range = bcube.z_range()
+        indexed_bcube = self.indexing_scheme(bcube)
+
+        x_range = indexed_bcube.x_range(mip=mip)
+        y_range = indexed_bcube.y_range(mip=mip)
+        z_range = indexed_bcube.z_range()
 
         chunks = []
         for zs in range(z_range[0], z_range[1], chunk_z):
@@ -163,3 +173,25 @@ class SectionValueLayer(VolumetricLayer):
 
     def get_data_type(self, *kars, **kwargs):
         return self.dtype
+
+    def indexing_scheme(self, bcube, channel):
+        new_bcube = copy.deepcopy(bcube)
+        new_bcube.reset_coords(channel, channel + 1, 0, 1)
+        return new_bcube
+
+    def supports_voxel_offset(self):
+        return False
+
+    def supports_chunking(self):
+        return False
+
+    '''kwargs):
+        new_bcube = self.convert_to_section_value_bcube(bcube)
+        return super().read_backend(new_bcube, mip, **kwargs)
+
+    def write(self, data_tens, bcube, mip, **kwargs):
+        super().write(data_tens, new_bcube, mip, **kwargs)
+
+    def declare_write_region(self, bcube, mips, **kwargs):
+        new_bcube = self.convert_to_section_value_bcube(bcube)
+        super().declare_write_region(new_bcube, mips, **kwargs)'''

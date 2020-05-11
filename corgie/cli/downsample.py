@@ -23,7 +23,6 @@ class DownsampleJob(scheduling.Job):
         self.chunk_xy = chunk_xy
         self.chunk_z = chunk_z
         self.mips_per_task = mips_per_task
-
         self.dst_layer.declare_write_region(self.bcube,
                 mips=range(self.mip_start, self.mip_end + 1))
 

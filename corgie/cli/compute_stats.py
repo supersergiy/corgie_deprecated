@@ -39,7 +39,6 @@ class ComputeStatsJob(scheduling.Job):
                 chunk_z=self.chunk_z,
                 mip=self.mip)
 
-
         chunk_mean_layer  = self.src_layer.get_sublayer(
                 name="chunk_mean{}".format(self.suffix),
                 layer_type="section_value",
@@ -49,6 +48,12 @@ class ComputeStatsJob(scheduling.Job):
                 name="chunk_var{}".format(self.suffix),
                 layer_type="section_value",
                 num_channels=len(chunks))
+
+        chunks = self.src_layer.break_bcube_into_chunks(
+                bcube=self.bcube,
+                chunk_xy=self.chunk_xy,
+                chunk_z=self.chunk_z,
+                mip=self.mip)
 
         for l in [mean_layer, chunk_mean_layer, var_layer,
                 chunk_var_layer]:
@@ -64,9 +69,33 @@ class ComputeStatsJob(scheduling.Job):
 
         print ("Yielding chunk stats tasks: {}, MIP: {}".format(
             self.bcube, self.mip))
-
         yield tasks
         yield scheduling.wait_until_done
+
+        import pdb; pdb.set_trace()
+        accum_chunks = chunk_mean_layer.break_bcube_into_chunks(
+                bcube=self.bcube,
+                chunk_xy=1,
+                chunk_z=self.chunk_z,
+                mip=self.mip)
+
+        accum_mean_tasks = [ComputeStatsTask(chunk_mean_layer,
+                                mean_layer=mean_layer,
+                                var_layer=None,
+                                mip=self.mip,
+                                bcube=accum_chunk,
+                                write_channel=0) \
+                            for accum_chunk in accum_chunks]
+
+        accum_var_tasks = [ComputeStatsTask(chunk_var_layer,
+                                mean_layer=var_layer,
+                                var_layer=None,
+                                mip=self.mip,
+                                bcube=accum_chunk,
+                                write_channel=0) \
+                            for accum_chunk in accum_chunks]
+
+        yield accum_mean_tasks + accum_var_tasks
 
     def create_dst_layers(self):
         mean_layer = self.src_layer.get_sublayer(
@@ -99,15 +128,26 @@ class ComputeStatsTask(scheduling.Task):
     def __call__(self):
         src_data = self.src_layer.read(bcube=self.bcube,
                 mip=self.mip)
-        mean = src_data[src_data != 0].float().mean()
+        if self.mean_layer is not None:
+            mean = src_data[src_data != 0].float().mean()
+            print ('mean: {}'.format(mean))
+            self.mean_layer.write(
+                    mean,
+                    bcube=self.bcube,
+                    mip=self.mip,
+                    channel_start=self.write_channel,
+                    channel_end=self.write_channel + 1)
 
-        import pdb; pdb.set_trace()
-        self.mean_layer.write(
-                mean,
-                bcube=self.bcube,
-                mip=self.mip,
-                channel_start=self.write_channel,
-                channel_end=self.write_channel + 1)
+        if self.var_layer is not None:
+            var = src_data[src_data != 0].float().var()
+
+            self.var_layer.write(
+                    var,
+                    bcube=self.bcube,
+                    mip=self.mip,
+                    channel_start=self.write_channel,
+                    channel_end=self.write_channel + 1)
+
 
 
 

@@ -87,11 +87,18 @@ class BoundingCube:
             return False
         return True
 
-    def reset_coords(self, xs, xe, ys, ye, zs, ze, mip=0):
+    def reset_coords(self, xs=None, xe=None,
+            ys=None, ye=None, zs=None, ze=None, mip=0):
         scale_factor = 2**mip
-        self.m0_x = (int(xs * scale_factor), int(xe * scale_factor))
-        self.m0_y = (int(ys * scale_factor), int(ye * scale_factor))
-        self.z = (zs, ze)
+        if xs is not None and xe is not None:
+            self.m0_x = (int(xs * scale_factor),
+                    int(xe * scale_factor))
+        if ys is not None and ye is not None:
+            self.m0_y = (int(ys * scale_factor),
+                    int(ye * scale_factor))
+        if zs is not None and ze is not None:
+            self.z = (zs, ze)
+
 
     def get_offset(self, mip=0):
         scale_factor = 2**mip
