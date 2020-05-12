@@ -1,14 +1,15 @@
 import click
+from click_option_group import optgroup
+
 
 from corgie import scheduling
-from corgie.log import logger as corgie_logger
 from corgie.scheduling import pass_scheduler
 from corgie.data_backends import pass_data_backend
 from corgie.layers import get_layer_types, DEFAULT_LAYER_TYPE, \
                              str_to_layer_type
 from corgie.boundingcube import get_bcube_from_coords
 from corgie import argparsers
-from corgie.argparsers import corgie_layer_argument, corgie_option, corgie_optgroup
+from corgie.argparsers import layer_argument
 
 
 class DownsampleJob(scheduling.Job):
@@ -77,49 +78,72 @@ class DownsampleTask(scheduling.Task):
 
 
 @click.command()
-@corgie_optgroup('Source layer parameters')
-@corgie_layer_argument('src')
-@corgie_optgroup('Destination layer parameters. [Default: same as Source]')
-@corgie_layer_argument('dst', required=False)
+# Input Layers
+@optgroup.group('Source Layer Parameters')
+@layer_argument('src')
+@optgroup.group('Field Layer Parameters')
+@layer_argument('field', allowed_types=["field"])
+@optgroup.group('Destination Layer Parameters. \n'
+        '   [Default: Source layer + "/{Source Layer type}/warped" + ("_{suffix}" '
+        'if given suffix)]')
+@layer_argument('dst', required=False)
+@optgroup.group('Mask Layer Parameters. [Default: None]')
+@layer_argument('mask', required=False, allowed_types=['mask'])
 
-@corgie_optgroup('Downsample parameters')
-@corgie_option('--mip_start',  '-m', nargs=1, type=int, required=True)
-@corgie_option('--mip_end',    '-e', nargs=1, type=int, required=True)
-@corgie_option('--chunk_xy',   '-c', nargs=1, type=int, default=2048)
-@corgie_option('--chunk_z',          nargs=1, type=int, default=1)
-@corgie_option('--mips_per_task',    nargs=1, type=int, default=3)
+@click.option('--suffix',                  nargs=1, type=str,  default=None)
 
-@corgie_optgroup('Data Region Specification')
-@corgie_option('--start_coord',      nargs=1, type=str, required=True)
-@corgie_option('--end_coord',        nargs=1, type=str, required=True)
-@corgie_option('--coord_mip',        nargs=1, type=int, default=0)
+@optgroup.group('Render Method Specification')
+#@click.option('--seethrough_masks',    nargs=1, type=bool, default=False)
+#@click.option('--seethrough_misalign', nargs=1, type=bool, default=False)
+@optgroup.option('--pad',                  nargs=1, type=int,  default=256)
+@optgroup.option('--chunk_xy', '-c',       nargs=1, type=int,  default=2048)
+@optgroup.option('--chunk_z',              nargs=1, type=int,  default=1)
+
+@optgroup.group('Data Region Specification')
+@optgroup.option('--mip',                  nargs=1, type=int,  required=True)
+@optgroup.option('--start_coord',          nargs=1, type=str,  required=True)
+@optgroup.option('--end_coord',            nargs=1, type=str,  required=True)
+@optgroup.option('--coord_mip',            nargs=1, type=int,  default=0)
+
 @click.pass_context
-def downsample(ctx, mip_start, mip_end, chunk_xy,
-        chunk_z, mips_per_task, start_coord, end_coord, coord_mip,
+def render(ctx, src_mip, field_mip, pad, chunk_xy,
+        chunk_z, start_coord, end_coord, coord_mip, suffix,
         **kwargs):
     scheduler = ctx.obj['scheduler']
 
-    corgie_logger.debug("Setting up Source and Destination layers...")
+    corgie_logger.debug("Setting up layers...")
     src_layer = argparsers.create_layer_from_args('src', kwargs,
             readonly=True)
+    mask_layer = argparsers.create_layer_from_args('mask', kwargs,
+            readonly=True)
+    field_layer = argparsers.create_layer_from_args('field', kwargs,
+            readonly=True)
+
     dst_layer = argparsers.create_layer_from_args('dst', kwargs,
             reference=src_layer)
 
     if dst_layer is None:
-        logger.info("Destination layer not specified. Using Source layer "
-                "as Destination.")
-        dst_layer = src_layer
-        dst_layer.readonly = False
+        dst_layer_type = src_layer.get_layer_type()
+        dst_layer_name = 'warped'
+        if suffix is not None:
+            dst_layer_name += '_{}'.format(suffix)
+        dst_layer = src_layer.get_sublayer(name=dst_layer_name,
+                layer_type=dst_layer_type, readonly=False)
+        logger.info("Destination layer not specified. "
+                "Using {} as Destination.".format(dst_layer.path))
 
     bcube = get_bcube_from_coords(start_coord, end_coord, coord_mip)
 
-    downsample_job = DownsampleJob(src_layer, dst_layer,
-                                   mip_start, mip_end,
-                                   bcube=bcube,
-                                   chunk_xy=chunk_xy,
-                                   chunk_z=chunk_z,
-                                   mips_per_task=mips_per_task)
+    render_job = RenderJob(src_layer=src_layer,
+                           dst_layer=dst_layer,
+                           mask_layer=mask_layer,
+                           field_layer=field_layer,
+                           mip=mip,
+                           pad=pad,
+                           bcube=bcube,
+                           chunk_xy=chunk_xy,
+                           chunk_z=chunk_z)
 
     # create scheduler and execute the job
-    scheduler.register_job(downsample_job, job_name="downsample")
+    scheduler.register_job(render_job, job_name="Render {}".format(bcube))
     scheduler.execute_until_completion()

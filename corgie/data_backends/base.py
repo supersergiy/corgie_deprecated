@@ -38,7 +38,7 @@ class DataBackendBase:
             self.device = self.default_device
         super().__init__(*kargs, **kwargs)
 
-    def create_layer(self, path, layer_type, *kargs, reference=None, **kwargs):
+    def create_layer(self, path, layer_type, *kargs, layer_args={}, reference=None, **kwargs):
         if layer_type not in self.layer_constr_dict:
             raise Exception("Layer type {} is not \
                     defined".format(layer_type))
@@ -52,8 +52,8 @@ class DataBackendBase:
         layer = self.layer_constr_dict[layer_type](path, device=self.device,
                 reference=reference,
                 backend=self,
-                *kargs,
-                **kwargs)
+                **layer_args
+                )
         corgie_logger.debug("Done")
         return layer
 

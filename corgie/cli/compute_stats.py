@@ -4,6 +4,7 @@ import click
 from click_option_group import optgroup
 
 from corgie import scheduling
+from corgie.log import logger as corgie_logger
 from corgie.scheduling import pass_scheduler
 from corgie.data_backends import pass_data_backend
 from corgie.layers import get_layer_types, DEFAULT_LAYER_TYPE, \
@@ -39,15 +40,18 @@ class ComputeStatsJob(scheduling.Job):
                 chunk_z=self.chunk_z,
                 mip=self.mip)
 
+        assert len(chunks) % self.bcube.z_size() == 0
+        chunks_per_section = len(chunks) // self.bcube.z_size()
+
         chunk_mean_layer  = self.src_layer.get_sublayer(
                 name="chunk_mean{}".format(self.suffix),
                 layer_type="section_value",
-                num_channels=len(chunks))
+                num_channels=chunks_per_section)
 
         chunk_var_layer  = self.src_layer.get_sublayer(
                 name="chunk_var{}".format(self.suffix),
                 layer_type="section_value",
-                num_channels=len(chunks))
+                num_channels=chunks_per_section)
 
         chunks = self.src_layer.break_bcube_into_chunks(
                 bcube=self.bcube,
@@ -58,24 +62,27 @@ class ComputeStatsJob(scheduling.Job):
         for l in [mean_layer, chunk_mean_layer, var_layer,
                 chunk_var_layer]:
             l.declare_write_region(self.bcube, mips=[self.mip])
+        # sort chunks by z
+        chunks.sort(reverse=True, key=lambda c:c.z_range()[1])
 
         tasks = [ComputeStatsTask(self.src_layer,
                                 mean_layer=chunk_mean_layer,
                                 var_layer=chunk_var_layer,
                                 mip=self.mip,
                                 bcube=chunks[chunk_num],
-                                write_channel=chunk_num) \
+                                # chunks are sorted by z, so this gives the chunk num
+                                # for a given z
+                                write_channel=chunk_num % chunks_per_section) \
                             for chunk_num in range(len(chunks))]
 
-        print ("Yielding chunk stats tasks: {}, MIP: {}".format(
+        corgie_logger.info("Yielding chunk stats tasks: {}, MIP: {}".format(
             self.bcube, self.mip))
         yield tasks
         yield scheduling.wait_until_done
 
-        import pdb; pdb.set_trace()
         accum_chunks = chunk_mean_layer.break_bcube_into_chunks(
                 bcube=self.bcube,
-                chunk_xy=1,
+                chunk_xy=chunks_per_section,
                 chunk_z=self.chunk_z,
                 mip=self.mip)
 
@@ -95,6 +102,7 @@ class ComputeStatsJob(scheduling.Job):
                                 write_channel=0) \
                             for accum_chunk in accum_chunks]
 
+        corgie_logger.info("Yielding chunk stats aggregation tasks...")
         yield accum_mean_tasks + accum_var_tasks
 
     def create_dst_layers(self):
@@ -102,13 +110,13 @@ class ComputeStatsJob(scheduling.Job):
                 name="mean{}".format(self.suffix),
                 layer_type="section_value")
         if self.announce_layer_creation:
-            print ("Created destination layer {}".format(mean_layer))
+            corgie_logger.info("Created destination layer {}".format(mean_layer))
 
         var_layer  = self.src_layer.get_sublayer(
                 name="var{}".format(self.suffix),
                 layer_type="section_value")
         if self.announce_layer_creation:
-            print ("Created destination layer {}".format(var_layer))
+            corgie_logger.info("Created destination layer {}".format(var_layer))
 
         return mean_layer, var_layer
 
@@ -130,7 +138,6 @@ class ComputeStatsTask(scheduling.Task):
                 mip=self.mip)
         if self.mean_layer is not None:
             mean = src_data[src_data != 0].float().mean()
-            print ('mean: {}'.format(mean))
             self.mean_layer.write(
                     mean,
                     bcube=self.bcube,
@@ -147,8 +154,6 @@ class ComputeStatsTask(scheduling.Task):
                     mip=self.mip,
                     channel_start=self.write_channel,
                     channel_end=self.write_channel + 1)
-
-
 
 
 @click.command()
@@ -181,7 +186,7 @@ def compute_stats(ctx, suffix, mip, chunk_xy, chunk_z,  start_coord,
 
     scheduler = ctx.obj['scheduler']
 
-    # Set up source layer.
+    # Set up input layers.
     # Destination layers are created automatically inside a reusable function
     src_layer = argparsers.create_layer_from_args('src', kwargs,
             readonly=True)

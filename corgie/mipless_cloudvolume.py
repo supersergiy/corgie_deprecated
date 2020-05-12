@@ -5,6 +5,7 @@ import cloudvolume
 from cloudvolume import CloudVolume, Storage
 
 from corgie import scheduling
+from corgie.log import logger as corgie_logger
 
 def deserialize_miplessCV_old(s, cache={}):
         if s in cache:
@@ -119,7 +120,8 @@ class MiplessCloudVolume():
             self.store_info(tmp_cv.info)
 
     def create(self, mip):
-        print('Creating CloudVolume for {0} at MIP{1}'.format(self.path, mip))
+
+        corgie_logger.debug('Creating CloudVolume for {0} at MIP{1}'.format(self.path, mip))
         self.cvs[mip] = self.obj(self.path, mip=mip, **self.cv_params)
 
         #if self.mkdir:

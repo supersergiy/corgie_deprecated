@@ -4,11 +4,12 @@ import click
 from corgie.log import configure_logger
 from corgie.log import logger as corgie_logger
 
+from corgie.argparsers import corgie_option, corgie_optgroup
 from corgie.data_backends import get_data_backends, str_to_backend, \
         DEFAULT_DATA_BACKEND, DataBackendBase
 from corgie.cli.downsample import downsample
 from corgie.scheduling import create_scheduler
-from corgie.cli import get_command_list
+from corgie.cli import get_command_list, get_help_command_list
 
 
 class GroupWithCommandOptions(click.Group):
@@ -46,13 +47,19 @@ class GroupWithCommandOptions(click.Group):
             original_invoke(ctx)
 
         return command_invoke
+@click.group()
+def helper():
+    ''' Learn more about using corgie! Specify the topic that
+    you'd like to learn more about as command (eg:
+    corgie-help stacks)'''
 
 @click.group(cls=GroupWithCommandOptions)
 @click.option('--queue_name', '-q', nargs=1, type=str, required=None)
-@click.option('--device', '-b', 'device', nargs=1,
+@click.option('--device',     '-d', 'device', nargs=1,
                 type=str,
                 default='cpu',
-                help="Pytorch device specification. Eg: 'cpu', 'cuda', 'cuda:0'")
+                help="Pytorch device specification. Eg: 'cpu', 'cuda', 'cuda:0'",
+                show_default=True)
 @click.option('-v', '--verbose', count=True, help='Turn on debug logging')
 @click.pass_context
 def cli(ctx, queue_name, device, verbose):
@@ -68,8 +75,10 @@ def cli(ctx, queue_name, device, verbose):
         corgie_logger.debug("Scheduler created.")
 
 for c in get_command_list():
-    # to create new commands, see corgie/cli/__init__.py
     cli.add_command(c)
+
+for c in get_help_command_list():
+    helper.add_command(c)
 
 if __name__ == "__main__":
     cli()

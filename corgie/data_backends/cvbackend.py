@@ -56,49 +56,33 @@ class CVLayerBase(BaseLayerBackend):
         return self.backend.create_layer(path=sublayer_path, layer_type=layer_type,
                 reference=self, **kwargs)
 
-    def read_backend(self, bcube, mip,
-            channel_start=None, channel_end=None):
-        if channel_start is None:
-            channel_start = 0
-        if channel_end is None:
-            channel_end = self.cv[mip].shape[-1]
-
+    def read_backend(self, bcube, mip):
         x_range = bcube.x_range(mip)
         y_range = bcube.y_range(mip)
         z_range = bcube.z_range()
 
-        corgie_logger.debug("READ from {}: \n   x: {}, y: {}, z: {}, chan: {}, MIP: {}".format(
-            str(self), x_range, y_range, z_range, (channel_start, channel_end), mip))
+        corgie_logger.debug("READ from {}: \n   x: {}, y: {}, z: {}, MIP: {}".format(
+            str(self), x_range, y_range, z_range, mip))
         data = self.cv[mip][x_range[0]:x_range[1],
                      y_range[0]:y_range[1],
-                     z_range[0]:z_range[1],
-                     channel_start:channel_end]
+                     z_range[0]:z_range[1]]
         data = np.transpose(data, (2,3,0,1))
         return data
 
-    def write_backend(self, data, bcube, mip,
-            channel_start=None, channel_end=None):
-        if channel_start is None:
-            channel_start = 0
-        if channel_end is None:
-            channel_end = self.cv[mip].shape[-1]
-
+    def write_backend(self, data, bcube, mip):
         x_range = bcube.x_range(mip)
         y_range = bcube.y_range(mip)
         z_range = bcube.z_range()
 
         data = np.transpose(data, (2,3,0,1))
 
-        corgie_logger.debug("Write to {}: \n x: {}, y: {}, z: {}, chan: {}, MIP: {}".format(
-            str(self), x_range, y_range, z_range, (channel_start, channel_end), mip))
-        import pdb; pdb.set_trace()
+        corgie_logger.debug("Write to {}: \n x: {}, y: {}, z: {}, MIP: {}".format(
+            str(self), x_range, y_range, z_range, mip))
         self.cv[mip].autocrop = True
         self.cv[mip][x_range[0]:x_range[1],
                      y_range[0]:y_range[1],
-                     z_range[0]:z_range[1],
-                     channel_start:channel_end] = data
+                     z_range[0]:z_range[1]] = data
         self.cv[mip].autocrop = False
-        test_data = self.read_backend(bcube, mip, channel_start, channel_end)
 
 
     def get_info(self):

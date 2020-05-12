@@ -10,14 +10,17 @@ from corgie.boundingcube import BoundingCube
 from corgie.layers.base import register_layer_type, BaseLayerType
 
 class VolumetricLayer(BaseLayerType):
-    def __init__(self, *kargs, **kwargs):
-        super().__init__(*kargs, **kwargs)
+    def __init__(self, data_mip_ranges=None, **kwargs):
+        super().__init__(**kwargs)
         self.mip_has_data = [True for _ in range(0, constants.MAX_MIP + 1)]
-        if 'data_mip_ranges' in kwargs:
+        if data_mip_ranges is not None:
             for i in range(len(self.mip_has_data)):
-                mip_has_data[i] = False
-            for l, h in kwargs['data_mip_ranges']:
-                self.mip_has_data[l:h] = True
+                self.mip_has_data[i] = False
+
+            for l, h in data_mip_ranges:
+                for i in range(l, h):
+                    self.mip_has_data[i] = True
+
         self.declared_write_mips = []
         self.declared_write_bcube = BoundingCube(0, 0, 0, 0, 0, 0, 0)
 
@@ -25,14 +28,14 @@ class VolumetricLayer(BaseLayerType):
         return self.mip_has_data[mip]
 
     def read(self, bcube, mip, **kwargs):
-        indexed_bcube = self.indexing_scheme(bcube, **kwargs)
+        indexed_bcube = self.indexing_scheme(bcube, mip, kwargs)
         if not self.has_data(mip):
             raise exceptions.NoMipDataException(self.path, mip)
         return super().read(bcube=indexed_bcube, mip=mip, **kwargs)
 
     def write(self, data_tens, bcube, mip, **kwargs):
         self.check_write_region(bcube, mip)
-        indexed_bcube = self.indexing_scheme(bcube, **kwargs)
+        indexed_bcube = self.indexing_scheme(bcube, mip, kwargs)
         super().write(data_tens=data_tens, bcube=indexed_bcube, mip=mip, **kwargs)
         self.mip_has_data[mip] = True
 
@@ -48,9 +51,12 @@ class VolumetricLayer(BaseLayerType):
 
     def declare_write_region(self, bcube, mips, **kwargs):
         self.declared_write_mips = list(mips)
-        self.declared_write_bcube = indexed_bcube
+        self.declared_write_bcube = bcube
 
-    def break_bcube_into_chunks(self, bcube, chunk_xy, chunk_z, mip):
+    def indexing_scheme(self, bcube, mip, kwargs):
+        return bcube
+
+    def break_bcube_into_chunks(self, bcube, chunk_xy, chunk_z, mip, **kwargs):
         """Default breaking up of a bcube into smaller bcubes (chunks).
         Returns a list of chunks
         Args:
@@ -58,7 +64,7 @@ class VolumetricLayer(BaseLayerType):
            chunk_size: tuple for dimensions of chunk that bbox will be broken into
            mip: int for MIP level at which chunk_xy is dspecified
         """
-        indexed_bcube = self.indexing_scheme(bcube)
+        indexed_bcube = self.indexing_scheme(bcube, mip, kwargs)
 
         x_range = indexed_bcube.x_range(mip=mip)
         y_range = indexed_bcube.y_range(mip=mip)
@@ -80,8 +86,8 @@ class VolumetricLayer(BaseLayerType):
 @scheduling.sendable
 @register_layer_type("img")
 class ImgLayer(VolumetricLayer):
-    def __init__(self, *kargs, num_channels=1, dtype='uint8', **kwargs):
-        super().__init__(*kargs, **kwargs)
+    def __init__(self, *args, num_channels=1, dtype='uint8', **kwargs):
+        super().__init__(*args, **kwargs)
         self.num_channels = num_channels
         self.dtype = dtype
 
@@ -103,7 +109,7 @@ class ImgLayer(VolumetricLayer):
                     recompute_scale_factor=False)
         return upsampler
 
-    def get_num_channels(self, *kargs, **kwargs):
+    def get_num_channels(self, *args, **kwargs):
         return self.num_channels
 
     def get_data_type(self, *kars, **kwargs):
@@ -113,13 +119,13 @@ class ImgLayer(VolumetricLayer):
 @scheduling.sendable
 @register_layer_type("field")
 class FieldLayer(VolumetricLayer):
-    def __init__(self, *kargs, num_channels=2, dtype='float32', **kwargs):
+    def __init__(self, *args, num_channels=2, dtype='float32', **kwargs):
         if num_channels != 2:
             raise exceptions.ArgumentError("Field layer 'num_channels'",
                     "Field layer must have 2 channels. 'num_channels' provided: {}".format(
                         num_channels
                         ))
-        super().__init__(*kargs, **kwargs)
+        super().__init__(*args, **kwargs)
 
     def get_downsampler(self):
         raise DownsampleFieldJob
@@ -127,7 +133,7 @@ class FieldLayer(VolumetricLayer):
     def get_upsampler(self):
         raise UpsampleFieldJob
 
-    def get_num_channels(self, *kargs, **kwargs):
+    def get_num_channels(self, *args, **kwargs):
         return 2
 
     def get_data_type(self, *kars, **kwargs):
@@ -137,13 +143,19 @@ class FieldLayer(VolumetricLayer):
 @scheduling.sendable
 @register_layer_type("mask")
 class MaskLayer(VolumetricLayer):
-    def __init__(self, *kargs, num_channels=1, dtype='uint8', **kwargs):
+    def __init__(self, binarization_param,
+            *args, num_channels=1, dtype='uint8', **kwargs):
+        self.binirizer = helpers.Binarizer(binarization_param)
         if num_channels != 1:
             raise exceptions.ArgumentError("Mask layer 'num_channels'",
                     "Mask layer must have 1 channels. 'num_channels' provided: {}".format(
                         num_channels
                         ))
-        super().__init__(*kargs, **kwargs)
+        super().__init__(*args, **kwargs)
+
+    def read(self, **kwargs):
+        data_tens = super().read(bcube=indexed_bcube, mip=mip, **kwargs)
+        return self.binirizer(data_tens)
 
     def get_downsampler(self):
         raise DownsampleMaskJob
@@ -151,7 +163,7 @@ class MaskLayer(VolumetricLayer):
     def get_upsampler(self):
         raise UpsampleMaskJob
 
-    def get_num_channels(self, *kargs, **kwargs):
+    def get_num_channels(self, *args, **kwargs):
         return 1
 
     def get_data_type(self, *kars, **kwargs):
@@ -161,23 +173,34 @@ class MaskLayer(VolumetricLayer):
 @scheduling.sendable
 @register_layer_type("section_value")
 class SectionValueLayer(VolumetricLayer):
-    def __init__(self, *kargs, num_channels=1, dtype='float32', **kwargs):
-        super().__init__(*kargs, **kwargs)
+    def __init__(self, *args, num_channels=1, dtype='float32', **kwargs):
+        super().__init__(*args, **kwargs)
         self.num_channels = num_channels
         self.dtype = dtype
 
     # TODO: insert custom indexing here.
 
-    def get_num_channels(self, *kargs, **kwargs):
-        return self.num_channels
+    def get_num_channels(self, *args, **kwargs):
+        return 1
 
     def get_data_type(self, *kars, **kwargs):
         return self.dtype
 
-    def indexing_scheme(self, bcube, channel):
+    def indexing_scheme(self, bcube, mip, kwargs):
         new_bcube = copy.deepcopy(bcube)
-        new_bcube.reset_coords(channel, channel + 1, 0, 1)
+        if 'channel_start' in kwargs and 'channel_end' in kwargs:
+            channel_start = kwargs['channel_start']
+            channel_end = kwargs['channel_end']
+            del kwargs['channel_start'], kwargs['channel_end']
+        else:
+            channel_start = 0
+            channel_end = self.num_channels
+
+        new_bcube.reset_coords(channel_start, channel_end, 0, 1, mip=mip)
         return new_bcube
+
+    def check_write_region(self, *args, **kwargs):
+        return True
 
     def supports_voxel_offset(self):
         return False

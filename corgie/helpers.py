@@ -1,3 +1,11 @@
+class PartialSpecification:
+    def __init__(self, f, **kwargs):
+        self.f = f
+        self.constr_kwargs = kwargs
+
+    def __call__(self, *kwargs):
+        return self.f(**constr_kwargs, **kwargs)
+
 def crop(**kwargs):
     raise NotImplementedError
 

@@ -25,8 +25,8 @@ def get_layer_types():
 
 
 class BaseLayerType:
-    def __init__(self, *kargs, device='cpu', readonly=False, **kwargs):
-        super().__init__(*kargs, **kwargs)
+    def __init__(self, device='cpu', readonly=False, **kwargs):
+        super().__init__(**kwargs)
         self.device = device
         self.readonly = readonly
 
@@ -52,9 +52,6 @@ class BaseLayerType:
 
     def supports_chunking(self):
         return True
-
-    def indexing_scheme(self, index, channel_start, channel_end, **kwargs):
-        return index
 
     def get_downsampler(self, *kargs, **kwargs):
         raise NotImplementedError

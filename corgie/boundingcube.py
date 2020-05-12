@@ -1,6 +1,6 @@
 import json
+import copy
 from math import floor, ceil
-from copy import deepcopy
 import numpy as np
 
 from corgie import scheduling
@@ -22,27 +22,6 @@ def get_bcube_from_coords(start_coord, end_coord, coord_mip,
 class BoundingCube:
     def __init__(self, xs, xe, ys, ye, zs, ze, mip):
         self.reset_coords(xs, xe, ys, ye, zs, ze, mip=mip)
-
-    def serialize(self):
-        contents = {
-          "m0_x": self.m0_x,
-          "m0_y": self.m0_y,
-          "z": self.z,
-        }
-        s = json.dumps(contents)
-        return s
-
-    @classmethod
-    def deserialize(cls, s):
-        contents = json.loads(s)
-        return BoundingCube(contents['m0_x'][0],
-                            contents['m0_x'][1],
-                            contents['m0_y'][0],
-                            contents['m0_y'][1],
-                            contents['z'][0],
-                            contents['z'][1],
-                            mip=0,
-                            )
 
     # TODO
     # def contains(self, other):
@@ -99,7 +78,6 @@ class BoundingCube:
         if zs is not None and ze is not None:
             self.z = (zs, ze)
 
-
     def get_offset(self, mip=0):
         scale_factor = 2**mip
         return (self.m0_x[0] / scale_factor + self.x_size(mip=0) / 2 / scale_factor,
@@ -118,7 +96,7 @@ class BoundingCube:
         return (ys, ye)
 
     def z_range(self):
-        return self.z
+        return copy.deepcopy(self.z)
 
     def area(self, mip=0):
         x_size = self.x_size(mip)
@@ -193,7 +171,6 @@ class BoundingCube:
     def __repr__(self):
         return self.__str__(mip=0)
 
-
     def translate(self, dist):
         """Translate bbox by int vector with shape (3,)
         """
@@ -215,4 +192,27 @@ class BoundingCube:
         x_range = self.x_range(mip=mip)
         y_range = self.y_range(mip=mip)
         return slice(*x_range), slice(*y_range), slice(*self.z)
+
+    def cutout(self, xs=None, xe=None,
+            ys=None, ye=None, zs=None, ze=None, mip=0):
+        res_xs, res_xe = self.x_range(mip)
+        res_ys, res_ye = self.y_range(mip)
+        res_zs, res_ze = self.z_range()
+
+        if xs is not None:
+            res_xs = max(res_xs, xs)
+        if xe is not None:
+            res_xe = min(res_xe, xe)
+        if ys is not None:
+            res_ys = max(res_ys, ys)
+        if ye is not None:
+            res_ye = min(res_ye, ye)
+        if zs is not None:
+            res_zs = max(res_zs, zs)
+        if ye is not None:
+            res_ze = min(res_ze, ze)
+
+        return BoundingCube(xs=res_xs, xe=res_xe,
+                ys=res_ys, ye=res_ye, zs=res_zs, ze=res_ze, mip=mip)
+
 
