@@ -28,6 +28,12 @@ class ReadError(CorgieException):
         super().__init__(self.msg)
 
 
+class ChunkingError(CorgieException):
+    def __init__(self, layer, reason):
+        self.msg = "\nLayer '{}': \n{}".format(str(layer), reason)
+        super().__init__(self.msg)
+
+
 class WriteError(CorgieException):
     def __init__(self, layer, reason):
         self.msg = "\nLayer '{}': \n{}".format(str(layer), reason)

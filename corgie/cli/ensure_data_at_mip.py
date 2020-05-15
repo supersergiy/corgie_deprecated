@@ -8,12 +8,13 @@ from corgie.layers import get_layer_types, DEFAULT_LAYER_TYPE, \
                              str_to_layer_type
 from corgie.boundingcube import get_bcube_from_coords
 from corgie import argparsers
-from corgie.argparsers import corgie_layer_argument, corgie_option, corgie_optgroup
+#from corgie.argparsers import corgie_layer_argument, corgie_option, corgie_optgroup
 from corgie.cli.downsample import DownsampleJob
 
 class EnsureDataAtMipJob(scheduling.Job):
     def __init__(self, src_layer, mip, bcube, chunk_xy, chunk_z,
-            do_upsample=True, do_downsample=True, mips_per_task=3):
+            do_upsample=True, do_downsample=True, mips_per_task=3,
+            wait_until_done=False):
         self.src_layer = src_layer
         self.mip = mip
         self.bcube = bcube
@@ -23,13 +24,14 @@ class EnsureDataAtMipJob(scheduling.Job):
 
         self.do_upsample = do_upsample
         self.do_downsample = do_downsample
+        self.wait_until_done = wait_until_done
 
         super().__init__()
 
     def task_generator(self):
         if self.src_layer.mip_has_data[self.mip]:
             corgie_logger.debug("Layer {} already has data at MIP {}".format(
-                self.src_layer, self, mip
+                self.src_layer, self.mip
                 ))
         else:
             if self.do_downsample:
@@ -53,18 +55,20 @@ class EnsureDataAtMipJob(scheduling.Job):
                             )
                     import pdb; pdb.set_trace()
                     yield from downsample_job.task_generator
-                elif self.do_upsample:
-                    reference_mip = None
-                    for m in range(self.mip, len(self.src_layer.mip_has_data)):
-                        if self.src_layer.mip_has_data[m]:
-                            reference_mip = m
-                            break
-                    raise NotImplementedError
-                else:
-                    raise NotImplementedError
+            elif self.do_upsample:
+                reference_mip = None
+                for m in range(self.mip, len(self.src_layer.mip_has_data)):
+                    if self.src_layer.mip_has_data[m]:
+                        reference_mip = m
+                        break
+                raise NotImplementedError
+            else:
+                raise NotImplementedError
+            if self.wait_until_done:
+                yield scheduling.wait_until_done
 
 
-@click.command()
+'''@click.command()
 @corgie_optgroup('Data layer parameters')
 @corgie_layer_argument('src')
 
@@ -80,6 +84,7 @@ class EnsureDataAtMipJob(scheduling.Job):
 @corgie_option('--start_coord',      nargs=1, type=str, required=True)
 @corgie_option('--end_coord',        nargs=1, type=str, required=True)
 @corgie_option('--coord_mip',        nargs=1, type=int, default=0)
+'''
 @click.pass_context
 def ensure_data_at_mip(ctx, mip, chunk_xy, do_upsample, do_downsample,
         chunk_z, mips_per_task, start_coord, end_coord, coord_mip,

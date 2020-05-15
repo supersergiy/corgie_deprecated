@@ -1,183 +1,174 @@
 import click
+import procspec
 
-from corgie import scheduling
-from corgie import argparsers
+from corgie import scheduling, argparsers, helpers
 
-from corgie.log import corgie_logger
-from corgie.processor import ApplyProcessorTask
-from corgie.scheduling import pass_scheduler
-from corgie.data_backends import pass_data_backend
+from corgie.log import logger as corgie_logger
 from corgie.layers import get_layer_types, DEFAULT_LAYER_TYPE, \
                              str_to_layer_type
 from corgie.boundingcube import get_bcube_from_coords
-from corgie.argparsers import corgie_layer_argument, corgie_option, corgie_optgroup
+from corgie.argparsers import LAYER_HELP_STR, \
+        create_layer_from_spec, corgie_optgroup, corgie_option, \
+        create_stack_from_spec
 
 from corgie.cli.ensure_data_at_mip import EnsureDataAtMipJob
 
-
 class ComputeFieldJob(scheduling.Job):
-    def __init__(self, src_layer, src_mask_layer, tgt_layer, tgt_mask_layer,
-                dst_layer, chunk_xy, chunk_z, processor_spec, pad, bcube, tgt_z_offset,
-                mip=suffix):
-        self.src_layer = src_layer
-        self.src_mask_layer = src_mask_layer
-        self.tgt_layer = tgt_layer
-        self.tgt_mask_layer = tgt_mask_layer
+    def __init__(self, src_stack, tgt_stack, dst_layer, chunk_xy, chunk_z,
+            processor_spec, pad, crop, bcube, tgt_z_offset, mip, suffix=''):
+        self.src_stack = src_stack
+        self.tgt_stack = tgt_stack
         self.dst_layer = dst_layer
         self.chunk_xy = chunk_xy
         self.chunk_z = chunk_z
         self.processor_spec = processor_spec
         self.pad = pad
+        self.crop = crop
         self.bcube = bcube
         self.tgt_z_offset = tgt_z_offset
         self.mip=mip
-        self.suffix = suffix
+        self.suffix = suffix #in case this job wants to make more layers
+        self.dst_layer.declare_write_region(self.bcube,
+                    mips=[mip], chunk_xy=chunk_xy, chunk_z=chunk_z)
+
+
         super().__init__()
 
     def task_generator(self):
-        for layer in [self.src_layer, self.tgt_layer, self.src_mask_layer,
-                self.tgt_mask_layer]:
-            yield from EnsureDataAtMipJob(layer=layer, mip=mip, do_downsample=True,
-                    do_upsample=False)
+        all_layers = self.src_stack.get_layers() + self.tgt_stack.get_layers()
+        for layer in all_layers:
+            prepare_data_job = EnsureDataAtMipJob(src_layer=layer, mip=self.mip, do_downsample=True,
+                    do_upsample=False, bcube=self.bcube, chunk_xy=self.chunk_xy, chunk_z=self.chunk_z,
+                    wait_until_done=True)
+            yield from prepare_data_job.task_generator
 
         chunks = self.dst_layer.break_bcube_into_chunks(
                     bcube=self.bcube,
                     chunk_xy=self.chunk_xy,
                     chunk_z=self.chunk_z,
-                    mip=mip)
+                    mip=self.mip)
 
-        tasks = [ApplyProcessorTask(processor_spec=processor_spec,
-                                    src_layer=self.src_layer,
-                                    src_mask_layer=self.src_mask_layer,
-                                    tgt_layer=self.tgt_layer,
-                                    tgt_mask_layer=self.tgt_mask_layer,
-                                    dst_layer=self.dst_layer,
-                                    mip=mip,
-                                    pad=pad,
-                                    tgt_z_offset = self.tgt_z_offset,
-                                    bcube=chunk,
-                                    suffix=suffix) for chunk in chunks]
-        corgie_logger.debug("Yielding downsample tasks for bcube: {}, MIPs: {}-{}".format(
-            self.bcube, this_mip_start, this_mip_end))
+        tasks = [ComputeFieldTask(processor_spec=self.processor_spec,
+                                  src_stack=self.src_stack,
+                                  tgt_stack=self.tgt_stack,
+                                  dst_layer=self.dst_layer,
+                                  mip=self.mip,
+                                  pad=self.pad,
+                                  crop=self.crop,
+                                  tgt_z_offset = self.tgt_z_offset,
+                                  bcube=chunk) for chunk in chunks]
 
+        corgie_logger.debug("Yielding CF tasks for bcube: {}, MIP: {}".format(
+            self.bcube, self.mip))
         yield tasks
 
 
-    def get_prepare_data(self):
-        for sec in [self.src_sec, self.tgt_sec]:
-            for cv_type in [ImgCV, MaskCV, FieldCV]:
-                if cv_type == FieldCV:
-                    domain_list = sec.get_domains_of_type(FieldCV)
-                else:
-                    domain_list = self.domains[cv_type]
+class ComputeFieldTask(scheduling.Task):
+    def __init__(self, processor_spec, src_stack, tgt_stack, dst_layer,  mip,
+            pad, crop, tgt_z_offset, bcube):
+        super().__init__()
+        self.processor_spec = processor_spec
+        self.src_stack = src_stack
+        self.tgt_stack = tgt_stack
+        self.dst_layer = dst_layer
+        self.mip = mip
+        self.pad = pad
+        self.crop = crop
+        self.tgt_z_offset = tgt_z_offset
+        self.bcube = bcube
 
-                # TODO: have custom, non-default downsamplers per domain
-                downsample_job_constructor = \
-                        cv_type.get_downsample_job_constructor
+    def __call__(self):
+        src_bcube = self.bcube.uncrop(self.pad, self.mip)
+        tgt_bcube = src_bcube.translate(z=self.tgt_z_offset)
 
-                for domain in domain_list:
-                    downsample_tasks = None
-                    mips_with_data = sec.domains[cv_type][domain].mips_with_data
+        processor = procspec.parse_proc(spec_str=self.processor_spec, default_output='src_cf_field')
 
-                    if cv_type == ImgCV:
-                        # has to have data at this MIP
-                        if self.in_mip not in mips_with_img_data:
-                            # has to be downsampled from lower MIP
-                            assert self.in_mip > mips_with_img_data.min()
-                            start_mip = mips_with_img_data.min()
-                            for m in mips_with_img_data:
-                                if m > start_mip and  m < self.in_mip:
-                                    start_mip = m
-                            dowsample_job = downsample_job_constructor(
-                                sec[cv_type][domain],
-                                start_mip=start_mip,
-                                end_mip=self.mip_in)
-                            yield downsample_job
+        src_translation, src_data_dict = self.src_stack.read_data_dict(src_bcube,
+                mip=self.mip, stack_name='src')
+        tgt_translation, tgt_data_dict = self.tgt_stack.read_data_dict(tgt_bcube,
+                mip=self.mip, stack_name='tgt')
 
-                    if cv_type in [MaskCV, FieldCV]:
-                        # has to have data at this MIP or Above
-                        if mips_with_data.max() < self.mip_in:
-                            start_mip = mips_with_data.max()
-                            dowsample_job = downsample_job_constructor(
-                                sec[cv_type][domain],
-                                start_mip=start_mip,
-                                end_mip=self.mip_in)
-                            yield downsample_job
+        processor_input = {**src_data_dict, **tgt_data_dict}
+
+        predicted_field = processor(processor_input)
+        cropped_field = helpers.crop(predicted_field, self.crop)
+        self.dst_layer.write(cropped_field, bcube=self.bcube, mip=self.mip)
 
 
 @click.command()
-@corgie_optgroup('Source Layer Parameters')
-@corgie_layer_argument('src', allowed_types=['img'])
-@corgie_optgroup('Target Layer Parameters. [Default: same as Source]')
-@corgie_layer_argument('tgt', required=False, allowed_types['img'])
-@corgie_optgroup('Source Mask Layer Parameters. [Default: None]')
-@corgie_layer_argument('src_mask', required=False, allowed_types=['mask'])
-@corgie_optgroup('Target Mask Layer Parameters. [Default: same as Source Mask]')
-@corgie_layer_argument('tgt_mask', required=False, allowed_types=['mask'])
 
-@corgie_option('--suffix',               nargs=1, type=str,  default=None)
+@corgie_optgroup('Layer Parameters')
 
-@corgie_optgroup('Destination Layer Parameters. \n'
-        '   [Default: Source layer + "/field/align_field" + ("_{suffix}" '
-        'if given suffix)]')
-@corgie_layer_argument('dst', required=False, allowed_types=['field'])
+@corgie_option('--src_layer_spec',  '-s', nargs=1,
+        type=str, required=True, multiple=True,
+        help='Source layer spec. Use multiple times to include all masks, fields, images. ' + \
+                LAYER_HELP_STR)
+#
+@corgie_option('--tgt_layer_spec', '-t', nargs=1,
+        type=str, required=False, multiple=True,
+        help='Target layer spec. Use multiple times to include all masks, fields, images. '\
+                'DEFAULT: Same as source layers')
+
+@corgie_option('--dst_layer_spec',  nargs=1,
+        type=str, required=False,
+        help= "Specification for the destination layer. Must be a field type." + \
+                " DEFAULT: source reference key path + /field/cf_field + (_{suffix})?")
+
+@corgie_option('--reference_key',       nargs=1, type=str, default='img')
 
 @corgie_optgroup('Compute Field Method Specification')
 @corgie_option('--processor_spec',       nargs=1, type=str, required=True)
 @corgie_option('--chunk_xy',       '-c', nargs=1, type=int, default=1024)
 @corgie_option('--chunk_z',              nargs=1, type=int, default=1)
 @corgie_option('--pad',                  nargs=1, type=int, default=512)
+@corgie_option('--crop',                 nargs=1, type=int, default=None)
 @corgie_option('--mip',                  nargs=1, type=int, required=True)
 
 @corgie_optgroup('Data Region Specification')
-@corgie_option('--src_start_coord',      nargs=1, type=str, required=True)
-@corgie_option('--src_end_coord',        nargs=1, type=str, required=True)
-@corgie_option('--src_coord_mip',        nargs=1, type=int, default=0)
-@corgie_option('--tgt_z_offset',         nargs=1, type=str, default=1)
+@corgie_option('--start_coord',      nargs=1, type=str, required=True)
+@corgie_option('--end_coord',        nargs=1, type=str, required=True)
+@corgie_option('--coord_mip',        nargs=1, type=int, default=0)
+@corgie_option('--tgt_z_offset',     nargs=1, type=str, default=1)
+
+@click.option('--suffix',            nargs=1, type=str,  default=None)
 
 @click.pass_context
-def compute_field(ctx, suffix, processor_spec, pad, chunk_xy, start_coord,
-        mip, end_coord, coord_mip, tgt_z_offset, chunk_z, **kwargs):
+def compute_field(ctx, src_layer_spec, tgt_layer_spec, dst_layer_spec,
+        suffix, processor_spec, pad, crop, chunk_xy, start_coord, mip, end_coord,
+        coord_mip, tgt_z_offset, chunk_z, reference_key):
+
     scheduler = ctx.obj['scheduler']
 
     corgie_logger.debug("Setting up layers...")
-    src_layer = argparsers.create_layer_from_args('src', kwargs,
-            readonly=True)
-    mask_layer = argparsers.create_layer_from_args('src_mask', kwargs,
-            readonly=True)
+    src_stack = create_stack_from_spec(src_layer_spec,
+            name='src', readonly=True)
 
-    tgt_layer = argparsers.create_layer_from_args('tgt', kwargs,
-            readonly=True)
-    if tgt_layer is None:
-        tgt_layer = src_layer
-    tgt_mask_layer = argparsers.create_layer_from_args('tgt_mask', kwargs,
-            readonly=True)
-    if tgt_mask_layer is None:
-        tgt_mask_layer = src_mask_layer
+    tgt_stack = create_stack_from_spec(tgt_layer_spec,
+            name='tgt', readonly=True, reference=src_stack)
 
-    dst_layer = argparsers.create_layer_from_args('dst', kwargs,
-            reference=src_layer)
-    if dst_layer is None:
-        dst_layer_name = 'align_field'
-        dst_layer = src_layer.get_sublayer(name='aligned',
-                layer_type='field', suffix=suffix, readonly=False)
-        logger.info("Destination layer not specified. "
-                "Using {} as Destination.".format(dst_layer.path))
+    reference_layer = None
+    if reference_key in src_stack.layers:
+        reference_layer = src_stack.layers[reference_key]
+    dst_layer = create_layer_from_spec(dst_layer_spec, allowed_types=['field'],
+            default_type='field', readonly=False, caller_name='dst_layer',
+            reference=reference_layer)
 
     bcube = get_bcube_from_coords(start_coord, end_coord, coord_mip)
 
+    if crop is None:
+        crop = pad
+
     compute_field_job = ComputeFieldJob(
-            src_layer=src_layer,
-            src_mask_layer=src_mask_layer,
-            tgt_layer=tgt_layer,
-            tgt_mask_layer=tgt_mask_layer,
+            src_stack=src_stack,
+            tgt_stack=tgt_stack,
             dst_layer=dst_layer,
             chunk_xy=chunk_xy,
             chunk_z=chunk_z,
             processor_spec=processor_spec,
             pad=pad,
+            crop=crop,
             bcube=bcube,
-            tgt_z_offset,
+            tgt_z_offset=tgt_z_offset,
             suffix=suffix,
             mip=mip)
 
@@ -185,9 +176,3 @@ def compute_field(ctx, suffix, processor_spec, pad, chunk_xy, start_coord,
     scheduler.register_job(align_block_job, job_name="Compute field {}, tgt z offset {}".format(
         bcube, tgt_z_offset))
     scheduler.execute_until_completion()
-
-
-
-
-
-

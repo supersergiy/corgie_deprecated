@@ -8,7 +8,8 @@ from corgie.layers import get_layer_types, DEFAULT_LAYER_TYPE, \
                              str_to_layer_type
 from corgie.boundingcube import get_bcube_from_coords
 from corgie import argparsers
-from corgie.argparsers import corgie_layer_argument, corgie_option, corgie_optgroup
+from corgie.argparsers import LAYER_HELP_STR, \
+        create_layer_from_spec, corgie_optgroup, corgie_option
 
 
 class DownsampleJob(scheduling.Job):
@@ -23,7 +24,8 @@ class DownsampleJob(scheduling.Job):
         self.chunk_z = chunk_z
         self.mips_per_task = mips_per_task
         self.dst_layer.declare_write_region(self.bcube,
-                mips=range(self.mip_start, self.mip_end + 1))
+                mips=range(self.mip_start, self.mip_end + 1),
+                chunk_xy=self.chunk_xy, chunk_z=self.chunk_z)
 
         super().__init__()
 
@@ -36,6 +38,7 @@ class DownsampleJob(scheduling.Job):
                     chunk_xy=self.chunk_xy,
                     chunk_z=self.chunk_z,
                     mip=this_mip_end)
+
             tasks = [DownsampleTask(self.src_layer,
                                     self.dst_layer,
                                     this_mip_start,
@@ -54,11 +57,10 @@ class DownsampleJob(scheduling.Job):
                 yield scheduling.wait_until_done
 
 
-@scheduling.sendable
 class DownsampleTask(scheduling.Task):
     def __init__(self, src_layer, dst_layer, mip_start, mip_end,
                  bcube):
-        super().__init__(self)
+        super().__init__()
         self.src_layer = src_layer
         self.dst_layer = dst_layer
         self.mip_start = mip_start
@@ -77,10 +79,17 @@ class DownsampleTask(scheduling.Task):
 
 
 @click.command()
-@corgie_optgroup('Source layer parameters')
-@corgie_layer_argument('src')
-@corgie_optgroup('Destination layer parameters. [Default: same as Source]')
-@corgie_layer_argument('dst', required=False)
+@corgie_optgroup('Layer Parameterd')
+@corgie_option('--src_layer_spec',  '-s', nargs=1,
+        type=str, required=True,
+        help='Specification for the source layer. ' + \
+                LAYER_HELP_STR)
+
+@corgie_option('--dst_layer_spec',  '-s', nargs=1,
+        type=str, required=False,
+        help= "Specification for the destination layer. "+ \
+                "Refer to 'src_layer_spec' for parameter format." + \
+                " DEFAULT: Same as src_layer_spec")
 
 @corgie_optgroup('Downsample parameters')
 @corgie_option('--mip_start',  '-m', nargs=1, type=int, required=True)
@@ -94,25 +103,27 @@ class DownsampleTask(scheduling.Task):
 @corgie_option('--end_coord',        nargs=1, type=str, required=True)
 @corgie_option('--coord_mip',        nargs=1, type=int, default=0)
 @click.pass_context
-def downsample(ctx, mip_start, mip_end, chunk_xy,
-        chunk_z, mips_per_task, start_coord, end_coord, coord_mip,
-        **kwargs):
+def downsample(ctx, src_layer_spec, dst_layer_spec, mip_start,
+        mip_end, chunk_xy, chunk_z, mips_per_task, start_coord,
+        end_coord, coord_mip):
     scheduler = ctx.obj['scheduler']
-
     corgie_logger.debug("Setting up Source and Destination layers...")
-    src_layer = argparsers.create_layer_from_args('src', kwargs,
-            readonly=True)
-    dst_layer = argparsers.create_layer_from_args('dst', kwargs,
-            reference=src_layer)
 
-    if dst_layer is None:
-        logger.info("Destination layer not specified. Using Source layer "
+    src_layer = create_layer_from_spec(src_layer_spec,
+            caller_name='src layer',
+            readonly=True)
+
+    if dst_layer_spec is None:
+        corgie_logger.info("Destination layer not specified. Using Source layer "
                 "as Destination.")
         dst_layer = src_layer
         dst_layer.readonly = False
-
+    else:
+        dst_layer = create_layer_from_spec(dst_layer_spec,
+            caller_name='dst_layer layer',
+            readonly=False,
+            reference=src_layer, chunk_z=chunk_z)
     bcube = get_bcube_from_coords(start_coord, end_coord, coord_mip)
-
     downsample_job = DownsampleJob(src_layer, dst_layer,
                                    mip_start, mip_end,
                                    bcube=bcube,

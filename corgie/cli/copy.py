@@ -1,29 +1,28 @@
 import click
 
-from corgie import scheduling, residuals, helpers, stack
-
+from corgie import scheduling, helpers, stack
 from corgie.log import logger as corgie_logger
 from corgie.layers import get_layer_types, DEFAULT_LAYER_TYPE, \
                              str_to_layer_type
 from corgie.boundingcube import get_bcube_from_coords
+
 from corgie.argparsers import LAYER_HELP_STR, \
-        create_layer_from_spec, corgie_optgroup, corgie_option
+        create_layer_from_spec, corgie_optgroup, corgie_option, \
+        create_stack_from_spec
 
-
-class RenderJob(scheduling.Job):
-    def __init__(self, src_stack, dst_stack, mip, pad, render_masks,
+class CopyJob(scheduling.Job):
+    def __init__(self, src_stack, dst_stack, mip, copy_masks,
                  blackout_masks, bcube, chunk_xy, chunk_z):
         self.src_stack = src_stack
         self.dst_stack = dst_stack
         self.mip = mip
-        self.pad = pad
         self.bcube = bcube
         self.chunk_xy = chunk_xy
         self.chunk_z = chunk_z
-        self.render_masks = render_masks
+        self.copy_masks = copy_masks
         self.blackout_masks = blackout_masks
 
-        if render_masks:
+        if copy_masks:
             write_layers = self.dst_stack.get_layers_of_type(["img", "mask"])
         else:
             write_layers = self.dst_stack.get_layers_of_type("img")
@@ -40,61 +39,48 @@ class RenderJob(scheduling.Job):
                 chunk_z=self.chunk_z,
                 mip=self.mip)
 
-        tasks = [RenderTask(self.src_stack,
+        tasks = [CopyTask(self.src_stack,
                             self.dst_stack,
                             blackout_masks=self.blackout_masks,
-                            render_masks=self.render_masks,
+                            copy_masks=self.copy_masks,
                             mip=self.mip,
-                            pad=self.pad,
                             bcube=input_chunk) for input_chunk in chunks]
-        corgie_logger.info(f"Yielding render tasks for bcube: {self.bcube}, MIP: {self.mip}")
+        corgie_logger.info(f"Yielding copy tasks for bcube: {self.bcube}, MIP: {self.mip}")
 
         yield tasks
 
 
-class RenderTask(scheduling.Task):
-    def __init__(self, src_stack, dst_stack, render_masks, blackout_masks, mip, pad,
+class CopyTask(scheduling.Task):
+    def __init__(self, src_stack, dst_stack, copy_masks, blackout_masks, mip,
                  bcube):
         super().__init__(self)
         self.src_stack = src_stack
         self.dst_stack = dst_stack
-        self.render_masks = render_masks
+        self.copy_masks = copy_masks
         self.blackout_masks = blackout_masks
         self.mip = mip
         self.bcube = bcube
-        self.pad = pad
 
     def __call__(self):
-        padded_bcube = self.bcube.uncrop(self.pad, self.mip)
-
-        src_translation, src_data_dict = self.src_stack.read_data_dict(padded_bcube,
-                mip=self.mip, stack_name='src')
-        agg_field = src_data_dict[f"src_agg_field"]
+        src_translation, src_data_dict = self.src_stack.read_data_dict(self.bcube,
+                mip=self.mip, translation_adjuster=None, stack_name='src')
 
         if self.blackout_masks:
-            mask_layers = self.dst_stack.get_layers_of_type(["img", "mask"])
+            mask_layers = self.dst_stack.get_layers_of_type(["mask"])
             mask = helpers.read_mask_list(mask_layers, self.bcube, self.mip)
         else:
             mask = None
 
-        if self.render_masks:
+        if self.copy_masks:
             write_layers = self.dst_stack.get_layers_of_type(["img", "mask"])
         else:
             write_layers = self.dst_stack.get_layers_of_type("img")
 
         for l in write_layers:
             src = src_data_dict[f"src_{l.name}"]
-
-            if agg_field is not None:
-                warped_src = residuals.res_warp_img(src.float(), agg_field)
-            else:
-                warped_src = src
-
             if mask is not None:
-                warped_src[mask] = 0.0
-
-            cropped_out = helpers.crop(warped_src, self.pad)
-            l.write(cropped_out, bcube=self.bcube, mip=self.mip)
+                src[mask] = 0
+            l.write(src, bcube=self.bcube, mip=self.mip)
 
 
 @click.command()
@@ -105,26 +91,25 @@ class RenderTask(scheduling.Task):
                 LAYER_HELP_STR)
 #
 @corgie_option('--dst_folder',  nargs=1,
-        type=str, required=True,
-        help= "Folder where rendered stack will go")
+        type=str, required=False,
+        help= "Folder where copied stack will go")
 
-@corgie_optgroup('Render Method Specification')
+@corgie_optgroup('Copy Method Specification')
 @corgie_option('--chunk_xy',       '-c', nargs=1, type=int, default=1024)
 @corgie_option('--chunk_z',              nargs=1, type=int, default=1)
-@corgie_option('--pad',                  nargs=1, type=int, default=512)
 @corgie_option('--mip',                  nargs=1, type=int, required=True)
-@corgie_option('--render_masks/--no_render_masks',          default=True)
 @corgie_option('--blackout_masks/--no_blackout_masks',      default=False)
+@corgie_option('--copy_masks/--no_copy_masks',              default=False)
 
 @corgie_optgroup('Data Region Specification')
 @corgie_option('--start_coord',      nargs=1, type=str, required=True)
 @corgie_option('--end_coord',        nargs=1, type=str, required=True)
 @corgie_option('--coord_mip',        nargs=1, type=int, default=0)
-@corgie_option('--tgt_z_offset',     nargs=1, type=str, default=1)
+@corgie_option('--suffix',           nargs=1, type=str, default='')
 
 @click.pass_context
-def render(ctx, src_layer_spec, dst_folder, pad, render_masks, blackout_masks,
-         chunk_xy, chunk_z, start_coord, end_coord, coord_mip, suffix):
+def copy(ctx, src_layer_spec, dst_folder, copy_masks, blackout_masks,
+         chunk_xy, chunk_z, start_coord, end_coord, coord_mip, mip, suffix):
     scheduler = ctx.obj['scheduler']
 
     corgie_logger.debug("Setting up layers...")
@@ -132,20 +117,19 @@ def render(ctx, src_layer_spec, dst_folder, pad, render_masks, blackout_masks,
             name='src', readonly=True)
 
     dst_stack = stack.create_stack_from_reference(reference_stack=src_stack,
-            folder=dst_folder, name="dst", types=["img", "mask"])
+            folder=dst_folder, name="dst", types=["img", "mask"], readonly=False)
 
     bcube = get_bcube_from_coords(start_coord, end_coord, coord_mip)
 
-    render_job = RenderJob(src_stack=src_stack,
+    copy_job = CopyJob(src_stack=src_stack,
                            dst_stack=dst_stack,
                            mip=mip,
-                           pad=pad,
                            bcube=bcube,
                            chunk_xy=chunk_xy,
                            chunk_z=chunk_z,
-                           render_masks=render_masks,
+                           copy_masks=copy_masks,
                            blackout_masks=blackout_masks)
 
     # create scheduler and execute the job
-    scheduler.register_job(render_job, job_name="Render {}".format(bcube))
+    scheduler.register_job(copy_job, job_name="Copy {}".format(bcube))
     scheduler.execute_until_completion()

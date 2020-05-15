@@ -13,14 +13,17 @@ def get_bcube_from_coords(start_coord, end_coord, coord_mip,
     bcube = BoundingCube(xs, xe, ys, ye, zs, ze, coord_mip)
 
     if cant_be_empty and bcube.area() * bcube.z_size() == 0:
-        raise Exception("Attempted creation of an empty bounding \
-                when 'cant_be_empty' flag is set to True")
+        raise Exception("Attempted creation of an empty bounding "
+                "when 'cant_be_empty' flag is set to True")
 
     return bcube
 
 @scheduling.sendable
 class BoundingCube:
     def __init__(self, xs, xe, ys, ye, zs, ze, mip):
+        self.m0_x = (None, None)
+        self.m0_y = (None, None)
+        self.z = (None, None)
         self.reset_coords(xs, xe, ys, ye, zs, ze, mip=mip)
 
     # TODO
@@ -68,15 +71,22 @@ class BoundingCube:
 
     def reset_coords(self, xs=None, xe=None,
             ys=None, ye=None, zs=None, ze=None, mip=0):
+
         scale_factor = 2**mip
-        if xs is not None and xe is not None:
-            self.m0_x = (int(xs * scale_factor),
-                    int(xe * scale_factor))
-        if ys is not None and ye is not None:
-            self.m0_y = (int(ys * scale_factor),
-                    int(ye * scale_factor))
-        if zs is not None and ze is not None:
-            self.z = (zs, ze)
+        if xs is not None:
+            self.m0_x =  (int(xs * scale_factor), self.m0_x[1])
+        if xe is not None:
+            self.m0_x = (self.m0_x[0], int(xe * scale_factor))
+
+        if ys is not None:
+            self.m0_y =  (int(ys * scale_factor), self.m0_y[1])
+        if ye is not None:
+            self.m0_y = (self.m0_y[0], int(ye * scale_factor))
+
+        if zs is not None:
+            self.z =  (int(zs), self.z[1])
+        if ze is not None:
+            self.z = (self.z[0], int(ze))
 
     def get_offset(self, mip=0):
         scale_factor = 2**mip
@@ -87,16 +97,16 @@ class BoundingCube:
         scale_factor = 2**mip
         xs = floor(self.m0_x[0] / scale_factor)
         xe = ceil(self.m0_x[1] / scale_factor)
-        return (xs, xe)
+        return [xs, xe]
 
     def y_range(self, mip):
         scale_factor = 2**mip
         ys = floor(self.m0_y[0] / scale_factor)
         ye = ceil(self.m0_y[1] / scale_factor)
-        return (ys, ye)
+        return [ys, ye]
 
     def z_range(self):
-        return copy.deepcopy(self.z)
+        return list(copy.deepcopy(self.z))
 
     def area(self, mip=0):
         x_size = self.x_size(mip)
@@ -131,10 +141,13 @@ class BoundingCube:
         """
         scale_factor = 2**mip
         m0_crop_xy = crop_xy * scale_factor
-        self.set_m0(self.m0_x[0] - m0_crop_xy,
-                    self.m0_x[1] + m0_crop_xy,
-                    self.m0_y[0] - m0_crop_xy,
-                    self.m0_y[1] + m0_crop_xy)
+        result = self.copy()
+        result.reset_coords(xs=self.m0_x[0] - m0_crop_xy,
+                        xe=self.m0_x[1] + m0_crop_xy,
+                        ys=self.m0_y[0] - m0_crop_xy,
+                        ye=self.m0_y[1] + m0_crop_xy,
+                        mip=0)
+        return result
 
     def zeros(self, mip):
         return np.zeros((self.x_size(mip), self.y_size(mip), self.z_size()),
@@ -171,22 +184,23 @@ class BoundingCube:
     def __repr__(self):
         return self.__str__(mip=0)
 
-    def translate(self, dist):
-        """Translate bbox by int vector with shape (3,)
-        """
-        x_range = self.x_range(mip=0)
-        y_range = self.y_range(mip=0)
+    def translate(self, x=0, y=0, z=0, mip=0):
+        assert isinstance(x, int)
+        assert isinstance(y, int)
+        assert isinstance(z, int)
 
-        return BoundingBox(x_range[0] + dist[0],
-                           x_range[1] + dist[0],
-                           y_range[0] + dist[1],
-                           y_range[1] + dist[1],
-                           z[0] + dist[0],
-                           z[1] + dist[1],
+        scale_factor = 2**mip
+
+        return BoundingCube(xs=self.m0_x[0] + x,
+                           xe=self.m0_x[1] + x,
+                           ys=self.m0_y[0] + y,
+                           ye=self.m0_y[1] + y,
+                           zs=self.z[0] + z,
+                           ze=self.z[1] + z,
                            mip=0)
 
     def copy(self):
-        return deepcopy(self)
+        return copy.deepcopy(self)
 
     def to_slices(self, zs, ze=None, mip=0):
         x_range = self.x_range(mip=mip)
@@ -209,7 +223,7 @@ class BoundingCube:
             res_ye = min(res_ye, ye)
         if zs is not None:
             res_zs = max(res_zs, zs)
-        if ye is not None:
+        if ze is not None:
             res_ze = min(res_ze, ze)
 
         return BoundingCube(xs=res_xs, xe=res_xe,

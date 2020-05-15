@@ -5,9 +5,9 @@ import torch
 from corgie import scheduling, constants, exceptions
 
 from corgie.log import logger as corgie_logger
-
 from corgie.boundingcube import BoundingCube
 from corgie.layers.base import register_layer_type, BaseLayerType
+from corgie import helpers
 
 class VolumetricLayer(BaseLayerType):
     def __init__(self, data_mip_ranges=None, **kwargs):
@@ -74,7 +74,6 @@ class VolumetricLayer(BaseLayerType):
         for zs in range(z_range[0], z_range[1], chunk_z):
             for xs in range(x_range[0], x_range[1], chunk_xy):
                 for ys in range(y_range[0], y_range[1], chunk_xy):
-
                     chunks.append(BoundingCube(xs, xs + chunk_xy,
                                               ys, ys + chunk_xy,
                                               zs, zs + chunk_z,
@@ -86,10 +85,9 @@ class VolumetricLayer(BaseLayerType):
 @scheduling.sendable
 @register_layer_type("img")
 class ImgLayer(VolumetricLayer):
-    def __init__(self, *args, num_channels=1, dtype='uint8', **kwargs):
+    def __init__(self, *args, num_channels=1, **kwargs):
         super().__init__(*args, **kwargs)
         self.num_channels = num_channels
-        self.dtype = dtype
 
     def get_downsampler(self):
         def downsampler(data_tens):
@@ -112,20 +110,28 @@ class ImgLayer(VolumetricLayer):
     def get_num_channels(self, *args, **kwargs):
         return self.num_channels
 
-    def get_data_type(self, *kars, **kwargs):
-        return self.dtype
-
+    def get_default_data_type(self):
+        return 'uint8'
 
 @scheduling.sendable
 @register_layer_type("field")
 class FieldLayer(VolumetricLayer):
-    def __init__(self, *args, num_channels=2, dtype='float32', **kwargs):
+    def __init__(self, *args, num_channels=2, **kwargs):
         if num_channels != 2:
             raise exceptions.ArgumentError("Field layer 'num_channels'",
                     "Field layer must have 2 channels. 'num_channels' provided: {}".format(
                         num_channels
                         ))
         super().__init__(*args, **kwargs)
+
+    def read(self, **kwargs):
+        data_tens = super().read(**kwargs)
+        data_field = data_tens.permute(0, 2, 3, 1)
+        return data_field
+
+    def write(self, data_tens, **kwargs):
+        data_field = data_tens.permute(0, 3, 1, 2)
+        super().write(data_field, **kwargs)
 
     def get_downsampler(self):
         raise DownsampleFieldJob
@@ -136,26 +142,27 @@ class FieldLayer(VolumetricLayer):
     def get_num_channels(self, *args, **kwargs):
         return 2
 
-    def get_data_type(self, *kars, **kwargs):
-        return self.dtype
+    def get_default_data_type(self):
+        return 'float32'
 
 
 @scheduling.sendable
 @register_layer_type("mask")
 class MaskLayer(VolumetricLayer):
-    def __init__(self, binarization_param,
-            *args, num_channels=1, dtype='uint8', **kwargs):
-        self.binirizer = helpers.Binarizer(binarization_param)
+    def __init__(self, binarization=None,
+            num_channels=1, **kwargs):
+        self.binarizer = helpers.Binarizer(binarization)
         if num_channels != 1:
             raise exceptions.ArgumentError("Mask layer 'num_channels'",
                     "Mask layer must have 1 channels. 'num_channels' provided: {}".format(
                         num_channels
                         ))
-        super().__init__(*args, **kwargs)
+        super().__init__(**kwargs)
 
     def read(self, **kwargs):
-        data_tens = super().read(bcube=indexed_bcube, mip=mip, **kwargs)
-        return self.binirizer(data_tens)
+        data_tens = super().read(**kwargs)
+        data_bin = self.binarizer(data_tens)
+        return data_bin
 
     def get_downsampler(self):
         raise DownsampleMaskJob
@@ -166,25 +173,20 @@ class MaskLayer(VolumetricLayer):
     def get_num_channels(self, *args, **kwargs):
         return 1
 
-    def get_data_type(self, *kars, **kwargs):
+    def get_default_data_type(self):
         return 'uint8'
-
 
 @scheduling.sendable
 @register_layer_type("section_value")
 class SectionValueLayer(VolumetricLayer):
-    def __init__(self, *args, num_channels=1, dtype='float32', **kwargs):
+    def __init__(self, *args, num_channels=1, **kwargs):
         super().__init__(*args, **kwargs)
         self.num_channels = num_channels
-        self.dtype = dtype
 
     # TODO: insert custom indexing here.
 
     def get_num_channels(self, *args, **kwargs):
         return 1
-
-    def get_data_type(self, *kars, **kwargs):
-        return self.dtype
 
     def indexing_scheme(self, bcube, mip, kwargs):
         new_bcube = copy.deepcopy(bcube)
@@ -207,6 +209,9 @@ class SectionValueLayer(VolumetricLayer):
 
     def supports_chunking(self):
         return False
+
+    def get_default_data_type(self):
+        return 'float32'
 
     '''kwargs):
         new_bcube = self.convert_to_section_value_bcube(bcube)

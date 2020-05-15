@@ -4,6 +4,7 @@ import click
 from click_option_group import optgroup
 
 from corgie import scheduling
+from corgie import helpers
 from corgie.log import logger as corgie_logger
 from corgie.scheduling import pass_scheduler
 from corgie.data_backends import pass_data_backend
@@ -11,29 +12,25 @@ from corgie.layers import get_layer_types, DEFAULT_LAYER_TYPE, \
                              str_to_layer_type
 from corgie.boundingcube import get_bcube_from_coords
 from corgie import argparsers
-from corgie.argparsers import layer_argument
+from corgie.argparsers import LAYER_HELP_STR, \
+        create_layer_from_spec, corgie_optgroup, corgie_option
 
 
 class ComputeStatsJob(scheduling.Job):
-    def __init__(self, src_layer, bcube, suffix, mip, chunk_xy,
-        chunk_z, announce_layer_creation=False):
+    def __init__(self, src_layer, mask_layers, mean_layer, var_layer, bcube,
+            mip, chunk_xy, chunk_z):
         self.src_layer = src_layer
+        self.mask_layers = mask_layers
+        self.mean_layer = mean_layer
+        self.var_layer = var_layer
         self.mip = mip
         self.bcube = bcube
         self.chunk_xy = chunk_xy
         self.chunk_z = chunk_z
-        self.announce_layer_creation = announce_layer_creation
-
-        if suffix is not None:
-            self.suffix = '_{}'.format(suffix)
-        else:
-            self.suffix = ''
 
         super().__init__(self)
 
     def task_generator(self):
-        mean_layer, var_layer = self.create_dst_layers()
-
         chunks = self.src_layer.break_bcube_into_chunks(
                 bcube=self.bcube,
                 chunk_xy=self.chunk_xy,
@@ -44,12 +41,12 @@ class ComputeStatsJob(scheduling.Job):
         chunks_per_section = len(chunks) // self.bcube.z_size()
 
         chunk_mean_layer  = self.src_layer.get_sublayer(
-                name="chunk_mean{}".format(self.suffix),
+                name="chunk_mean",
                 layer_type="section_value",
                 num_channels=chunks_per_section)
 
         chunk_var_layer  = self.src_layer.get_sublayer(
-                name="chunk_var{}".format(self.suffix),
+                name="chunk_var",
                 layer_type="section_value",
                 num_channels=chunks_per_section)
 
@@ -59,7 +56,7 @@ class ComputeStatsJob(scheduling.Job):
                 chunk_z=self.chunk_z,
                 mip=self.mip)
 
-        for l in [mean_layer, chunk_mean_layer, var_layer,
+        for l in [self.mean_layer, chunk_mean_layer, self.var_layer,
                 chunk_var_layer]:
             l.declare_write_region(self.bcube, mips=[self.mip])
         # sort chunks by z
@@ -67,6 +64,7 @@ class ComputeStatsJob(scheduling.Job):
 
         tasks = [ComputeStatsTask(self.src_layer,
                                 mean_layer=chunk_mean_layer,
+                                mask_layers=self.mask_layers,
                                 var_layer=chunk_var_layer,
                                 mip=self.mip,
                                 bcube=chunks[chunk_num],
@@ -87,7 +85,7 @@ class ComputeStatsJob(scheduling.Job):
                 mip=self.mip)
 
         accum_mean_tasks = [ComputeStatsTask(chunk_mean_layer,
-                                mean_layer=mean_layer,
+                                mean_layer=self.mean_layer,
                                 var_layer=None,
                                 mip=self.mip,
                                 bcube=accum_chunk,
@@ -95,7 +93,7 @@ class ComputeStatsJob(scheduling.Job):
                             for accum_chunk in accum_chunks]
 
         accum_var_tasks = [ComputeStatsTask(chunk_var_layer,
-                                mean_layer=var_layer,
+                                mean_layer=self.var_layer,
                                 var_layer=None,
                                 mip=self.mip,
                                 bcube=accum_chunk,
@@ -106,27 +104,15 @@ class ComputeStatsJob(scheduling.Job):
         yield accum_mean_tasks + accum_var_tasks
 
     def create_dst_layers(self):
-        mean_layer = self.src_layer.get_sublayer(
-                name="mean{}".format(self.suffix),
-                layer_type="section_value")
-        if self.announce_layer_creation:
-            corgie_logger.info("Created destination layer {}".format(mean_layer))
-
-        var_layer  = self.src_layer.get_sublayer(
-                name="var{}".format(self.suffix),
-                layer_type="section_value")
-        if self.announce_layer_creation:
-            corgie_logger.info("Created destination layer {}".format(var_layer))
-
         return mean_layer, var_layer
 
 
-@scheduling.sendable
 class ComputeStatsTask(scheduling.Task):
     def __init__(self, src_layer, mean_layer, var_layer, mip,
-                 bcube, write_channel):
+                 bcube, write_channel, mask_layers=[]):
         super().__init__(self)
         self.src_layer = src_layer
+        self.mask_layers = mask_layers
         self.mean_layer = mean_layer
         self.var_layer = var_layer
         self.mip = mip
@@ -136,6 +122,13 @@ class ComputeStatsTask(scheduling.Task):
     def __call__(self):
         src_data = self.src_layer.read(bcube=self.bcube,
                 mip=self.mip)
+        mask_data = helpers.read_mask_list(
+                mask_list=self.mask_layers,
+                bcube=self.bcube, mip=self.mip)
+
+        if mask_data is not None:
+            src_data = src_data[mask_data == 0]
+
         if self.mean_layer is not None:
             mean = src_data[src_data != 0].float().mean()
             self.mean_layer.write(
@@ -157,49 +150,86 @@ class ComputeStatsTask(scheduling.Task):
 
 
 @click.command()
-@optgroup.group('Source layer parameters')
-@layer_argument('src')
-@optgroup.group('Destination layer parameters. '
-        'If not specified, will be same as Source layer')
-@layer_argument('dst', required=False)
-def test(**kwargs):
-    pass
+@corgie_optgroup('Layer parameters')
+@corgie_option('--src_layer_spec',  '-s', nargs=1,
+        type=str, required=True, multiple=True,
+        help='Source layer spec. Use multiple times to include all masks, fields, images. ' + \
+                LAYER_HELP_STR)
 
-@click.command()
-# Input Layers
-@optgroup.group('Source layer parameters')
-@layer_argument('src')
+@corgie_option('--dst_folder',  nargs=1, type=str, required=True,
+        help="Folder where aligned stack will go")
+
+
 # Other Params
-@click.option('--suffix',     '-s', nargs=1, type=str, default=None)
-@click.option('--mip',        '-m', nargs=1, type=int, required=True)
-@click.option('--chunk_xy',   '-c', nargs=1, type=int, default=4096)
-@click.option('--chunk_z',          nargs=1, type=int, default=1)
-@click.option('--start_coord',      nargs=1, type=str, required=True)
-@click.option('--end_coord',        nargs=1, type=str, required=True)
-@click.option('--coord_mip',        nargs=1, type=int, default=0)
+@corgie_option('--suffix',     '-s', nargs=1, type=str, default=None)
+
+@corgie_optgroup('Computation Specification')
+@corgie_option('--mip',        '-m', nargs=1, type=int, required=True)
+@corgie_option('--chunk_xy',   '-c', nargs=1, type=int, default=4096)
+@corgie_option('--chunk_z',          nargs=1, type=int, default=1)
+
+@corgie_optgroup('Data Region Specification')
+@corgie_option('--start_coord',      nargs=1, type=str, required=True)
+@corgie_option('--end_coord',        nargs=1, type=str, required=True)
+@corgie_option('--coord_mip',        nargs=1, type=int, default=0)
 @click.pass_context
-def compute_stats(ctx, suffix, mip, chunk_xy, chunk_z,  start_coord,
-        end_coord, coord_mip, **kwargs):
+def compute_stats(ctx, src_layer_spec, dst_folder, suffix, mip,
+        chunk_xy, chunk_z,  start_coord, end_coord, coord_mip):
+    compute_stats_fn(ctx, src_layer_spec, mask_layers_spec, suffix, mip,
+        chunk_xy, chunk_z,  start_coord, end_coord, coord_mip)
+
+
+def compute_stats_fn(ctx, src_layer_spec, dst_folder, suffix, mip,
+        chunk_xy, chunk_z,  start_coord, end_coord, coord_mip):
+
     if chunk_z != 1:
         raise NotImplemented("Compute Statistics command currently only \
                 supports per-section statistics.")
 
     scheduler = ctx.obj['scheduler']
 
-    # Set up input layers.
-    # Destination layers are created automatically inside a reusable function
-    src_layer = argparsers.create_layer_from_args('src', kwargs,
+    src_layer = create_layer_from_spec(src_layer_spec,
+            caller_name='src layer',
             readonly=True)
+
+    mask_layers = [create_layer_from_spec(mask_spec,
+            caller_name='src mask',
+            readonly=True,
+            allowed_types=['mask'],
+            default_type='mask') for mask_spec in mask_layers_spec
+    ]
+
+    if suffix is None:
+        suffix = ''
+    else:
+        suffix = '_' + suffix
+
+    src_stack = create_stack_from_spec(src_layer_spec,
+            name='src', readonly=True)
+
+    dst_stack = stack.create_stack_from_reference(reference_stack=src_stack,
+            folder=dst_folder, name="dst", types=[], readonly=False,
+            suffix=suffix)
+
+    for l in src_stack.get_layers_of_type("img", "field")
+    mean_layer = src_layer.get_sublayer(
+            name=f"mean{suffix}",
+            layer_type="section_value")
+
+    var_layer  = src_layer.get_sublayer(
+            name=f"var{suffix}",
+            layer_type="section_value")
 
     bcube = get_bcube_from_coords(start_coord, end_coord, coord_mip)
 
     compute_stats_job = ComputeStatsJob(src_layer,
+                                   mask_layers=mask_layers,
+                                   mean_layer=mean_layer,
+                                   var_layer=var_layer,
                                    bcube=bcube,
-                                   suffix=suffix,
                                    mip=mip,
                                    chunk_xy=chunk_xy,
-                                   chunk_z=chunk_z,
-                                   announce_layer_creation=True)
+                                   chunk_z=chunk_z)
 
     # create scheduler and execute the job
     scheduler.register_job(compute_stats_job, job_name="compute stats")

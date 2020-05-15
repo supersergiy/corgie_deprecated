@@ -38,7 +38,7 @@ class DataBackendBase:
             self.device = self.default_device
         super().__init__(*kargs, **kwargs)
 
-    def create_layer(self, path, layer_type, *kargs, layer_args={}, reference=None, **kwargs):
+    def create_layer(self, path, layer_type, reference=None, layer_args={}, **kwargs):
         if layer_type not in self.layer_constr_dict:
             raise Exception("Layer type {} is not \
                     defined".format(layer_type))
@@ -49,10 +49,11 @@ class DataBackendBase:
         corgie_logger.debug("Creating layer '{}' on device '{}' with reference '{}'...".format(
                 path, self.device, reference
                 ))
-        layer = self.layer_constr_dict[layer_type](path, device=self.device,
+        layer = self.layer_constr_dict[layer_type](path=path, device=self.device,
                 reference=reference,
                 backend=self,
-                **layer_args
+                **layer_args,
+                **kwargs
                 )
         corgie_logger.debug("Done")
         return layer
@@ -70,8 +71,12 @@ class DataBackendBase:
 
 
 class BaseLayerBackend:
-    def __init__(self, *kargs, **kwargs):
-        super().__init__(*kargs, **kwargs)
+    def __init__(self, dtype=None, **kwargs):
+        super().__init__(**kwargs)
+        self.dtype = dtype
+
+    def get_data_type(self):
+        return self.dtype
 
     def get_sublayer(obj, *kargs, **kwargs):
         raise Exception("layer type backend must implement "
