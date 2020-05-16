@@ -10,6 +10,9 @@ Welcome to corgie's documentation!
    :maxdepth: 2
    :caption: Contents:
 
+   install 
+   examples 
+
 
 
 Indices and tables
