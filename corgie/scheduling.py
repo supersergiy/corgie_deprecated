@@ -1,9 +1,7 @@
-import click
 import mazepa
 
 wait_until_done = mazepa.Barrier
 Task = mazepa.Task
-sendable = mazepa.serializable
 
 class Job(mazepa.Job):
     def __init__(self, *kargs, **kwargs):
@@ -22,6 +20,4 @@ class Scheduler(mazepa.Scheduler):
 
 def create_scheduler(*kargs, **kwargs):
     return Scheduler(*kargs, **kwargs)
-
-pass_scheduler = click.make_pass_decorator(Scheduler)
 

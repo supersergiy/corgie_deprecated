@@ -12,7 +12,7 @@ from corgie.cli.ensure_data_at_mip import ensure_data_at_mip
 # To add new commands, create a file in this folder implementing a command,
 # import the command here and add it to the list:
 
-COMMAND_LIST = [align_block, compute_stats, normalize, copy]
+COMMAND_LIST = [align_block, compute_stats, normalize, copy, downsample]
         #compute_stats, render, align_block,
         #ensure_data_at_mip]
 #COMMAND_LIST = [downsample, compute_field, compute_stats, normalize, align_block,

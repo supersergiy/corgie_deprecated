@@ -17,7 +17,17 @@ setuptools.setup(
     install_requires=[
       'torch',
       'torchvision',
-      'numpy'
+      'numpy',
+      'six',
+      'mazepa',
+      'click',
+      'click-option-group'
     ],
+    entry_points={
+        "console_scripts": [
+            "corgie = corgie.main:cli",
+            "corgie-help = corgie.main:helper",
+        ],
+    },
     packages=setuptools.find_packages(),
 )

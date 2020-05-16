@@ -2,7 +2,7 @@ import copy
 
 import torch
 
-from corgie import scheduling, constants, exceptions
+from corgie import constants, exceptions
 
 from corgie.log import logger as corgie_logger
 from corgie.boundingcube import BoundingCube
@@ -82,7 +82,6 @@ class VolumetricLayer(BaseLayerType):
         return chunks
 
 
-@scheduling.sendable
 @register_layer_type("img")
 class ImgLayer(VolumetricLayer):
     def __init__(self, *args, num_channels=1, **kwargs):
@@ -113,7 +112,6 @@ class ImgLayer(VolumetricLayer):
     def get_default_data_type(self):
         return 'uint8'
 
-@scheduling.sendable
 @register_layer_type("field")
 class FieldLayer(VolumetricLayer):
     def __init__(self, *args, num_channels=2, **kwargs):
@@ -146,7 +144,6 @@ class FieldLayer(VolumetricLayer):
         return 'float32'
 
 
-@scheduling.sendable
 @register_layer_type("mask")
 class MaskLayer(VolumetricLayer):
     def __init__(self, binarization=None,
@@ -176,7 +173,6 @@ class MaskLayer(VolumetricLayer):
     def get_default_data_type(self):
         return 'uint8'
 
-@scheduling.sendable
 @register_layer_type("section_value")
 class SectionValueLayer(VolumetricLayer):
     def __init__(self, *args, num_channels=1, **kwargs):

@@ -73,16 +73,15 @@ class AlignBlockJob(scheduling.Job):
             yield from compute_field_job.task_generator
             yield scheduling.wait_until_done
 
-            self.src_stack.add_layer(align_field_layer)
             render_job = self.render_method(
                     src_stack=self.src_stack,
                     dst_stack=self.dst_stack,
                     bcube=src_bcube,
+                    additional_fields=[align_field_layer]
                     )
 
             yield from render_job.task_generator
             yield scheduling.wait_until_done
-            self.src_stack.remove_layer(align_field_layer.name)
 
 
 @click.command()

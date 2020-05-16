@@ -117,7 +117,8 @@ def copy(ctx, src_layer_spec, dst_folder, copy_masks, blackout_masks,
             name='src', readonly=True)
 
     dst_stack = stack.create_stack_from_reference(reference_stack=src_stack,
-            folder=dst_folder, name="dst", types=["img", "mask"], readonly=False)
+            folder=dst_folder, name="dst", types=["img", "mask"], readonly=False,
+            chunk_z=chunk_z)
 
     bcube = get_bcube_from_coords(start_coord, end_coord, coord_mip)
 

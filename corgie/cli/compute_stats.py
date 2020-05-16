@@ -40,12 +40,12 @@ class ComputeStatsJob(scheduling.Job):
         assert len(chunks) % self.bcube.z_size() == 0
         chunks_per_section = len(chunks) // self.bcube.z_size()
 
-        chunk_mean_layer  = self.src_layer.get_sublayer(
+        chunk_mean_layer  = self.mean_layer.get_sublayer(
                 name="chunk_mean",
                 layer_type="section_value",
                 num_channels=chunks_per_section)
 
-        chunk_var_layer  = self.src_layer.get_sublayer(
+        chunk_var_layer  = self.var_layer.get_sublayer(
                 name="chunk_var",
                 layer_type="section_value",
                 num_channels=chunks_per_section)
@@ -207,32 +207,35 @@ def compute_stats_fn(ctx, src_layer_spec, dst_folder, suffix, mip,
     src_stack = create_stack_from_spec(src_layer_spec,
             name='src', readonly=True)
 
-    dst_stack = stack.create_stack_from_reference(reference_stack=src_stack,
-            folder=dst_folder, name="dst", types=[], readonly=False,
-            suffix=suffix)
-
-    for l in src_stack.get_layers_of_type("img", "field")
-    mean_layer = src_layer.get_sublayer(
-            name=f"mean{suffix}",
-            layer_type="section_value")
-
-    var_layer  = src_layer.get_sublayer(
-            name=f"var{suffix}",
-            layer_type="section_value")
-
     bcube = get_bcube_from_coords(start_coord, end_coord, coord_mip)
 
-    compute_stats_job = ComputeStatsJob(src_layer,
-                                   mask_layers=mask_layers,
-                                   mean_layer=mean_layer,
-                                   var_layer=var_layer,
-                                   bcube=bcube,
-                                   mip=mip,
-                                   chunk_xy=chunk_xy,
-                                   chunk_z=chunk_z)
+    mask_layers = src_stack.get_layers_of_type(["mask"])
+    non_mask_layers = src_stack.get_layers_of_type(["img", "field"])
 
-    # create scheduler and execute the job
-    scheduler.register_job(compute_stats_job, job_name="compute stats")
+    for l in non_mask_layers:
+        mean_layer = src_layer.get_sublayer(
+                name=f"mean{suffix}",
+                path=os.path.join(dst_dir, f"mean{suffix}"),
+                layer_type="section_value",
+                )
+
+        var_layer  = src_layer.get_sublayer(
+                path=os.path.join(dst_dir, f"var{suffix}"),
+                layer_type="section_value")
+
+
+        compute_stats_job = ComputeStatsJob(
+               src_layer=l,
+               mask_layers=mask_layers,
+               mean_layer=mean_layer,
+               var_layer=var_layer,
+               bcube=bcube,
+               mip=mip,
+               chunk_xy=chunk_xy,
+               chunk_z=chunk_z)
+
+        # create scheduler and execute the job
+        scheduler.register_job(compute_stats_job, job_name=f"Compute Stats. Layer: {l}, Bcube: {bcube}")
     scheduler.execute_until_completion()
 
 

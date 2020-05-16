@@ -1,8 +1,9 @@
-import copy
+import os
 import click
+from copy import deepcopy
 
 from corgie import scheduling
-from corgie import helpers
+from corgie import helpers, stack
 from corgie.log import logger as corgie_logger
 from corgie.scheduling import pass_scheduler
 from corgie.data_backends import pass_data_backend
@@ -10,9 +11,10 @@ from corgie.layers import get_layer_types, DEFAULT_LAYER_TYPE, \
                              str_to_layer_type
 from corgie.boundingcube import get_bcube_from_coords
 from corgie import argparsers
+from corgie.cli.compute_stats import ComputeStatsJob
 from corgie.argparsers import LAYER_HELP_STR, \
-        create_layer_from_spec, corgie_optgroup, corgie_option
-from corgie.cli.compute_stats import compute_stats_fn
+        create_layer_from_spec, corgie_optgroup, corgie_option, \
+        create_stack_from_spec
 
 class NormalizeJob(scheduling.Job):
     def __init__(self, src_layer, mask_layers, dst_layer, mean_layer, var_layer, stats_mip,
@@ -116,7 +118,7 @@ def normalize(ctx, src_layer_spec, dst_folder, stats_mip,
     if chunk_z != 1:
         raise NotImplemented("Compute Statistics command currently only \
                 supports per-section statistics.")
-
+    result_report = ""
     scheduler = ctx.obj['scheduler']
 
     if suffix is None:
@@ -124,48 +126,74 @@ def normalize(ctx, src_layer_spec, dst_folder, stats_mip,
     else:
         suffix = f"_{suffix}"
 
-    if crop is None:
-        crop = pad
-
     if stats_mip is None:
         stats_mip = mip_end
-
-    if recompute_stats:
-        compute_stats_fn(ctx=ctx, src_layer_spec=src_layer_spec,
-                dst_folder=dst_folder, suffix=suffix, mip=stats_mip,
-                chunk_xy=chunk_xy, chunk_z=chunk_z, start_coord=start_coord,
-                end_coord=end_coord, coord_mip=coord_mip)
-
 
     corgie_logger.debug("Setting up layers...")
     src_stack = create_stack_from_spec(src_layer_spec,
             name='src', readonly=True)
 
     dst_stack = stack.create_stack_from_reference(reference_stack=src_stack,
-            folder=dst_folder, name="dst", types=["img", "mask"], readonly=False,
+            folder=dst_folder, name="dst", types=["img"], readonly=False,
             suffix=suffix)
 
-    mean_layer = src_layer.get_sublayer(
-            name=f"mean{suffix}",
-            layer_type="section_value")
-
-    var_layer  = src_layer.get_sublayer(
-            name=f"var{suffix}",
-            layer_type="section_value")
-
-
     bcube = get_bcube_from_coords(start_coord, end_coord, coord_mip)
-    for mip in range(mip_start, mip_end + 1):
-        normalize_job = NormalizeJob(src_layer, mask_layers, copy.deepcopy(dst_layer),
-                                     mean_layer=mean_layer,
-                                     var_layer=var_layer,
-                                     stats_mip=stats_mip,
-                                     mip=mip,
-                                     bcube=bcube,
-                                     chunk_xy=chunk_xy,
-                                     chunk_z=chunk_z,
-                                     mask_value=mask_value)
+
+    img_layers = src_stack.get_layers_of_type("img")
+    mask_layers = src_stack.get_layers_of_type("mask")
+    field_layers = src_stack.get_layers_of_type("field")
+    assert len(field_layers) == 0
+
+    for l in img_layers:
+        mean_layer = l.get_sublayer(
+                    name=f"mean{suffix}",
+                    path=os.path.join(dst_folder, f"mean{suffix}"),
+                    layer_type="section_value",
+                    )
+
+        var_layer  = l.get_sublayer(
+                name=f"var{suffix}",
+                path=os.path.join(dst_folder, f"var{suffix}"),
+                layer_type="section_value")
+
+        if recompute_stats:
+            compute_stats_job = ComputeStatsJob(
+                   src_layer=l,
+                   mask_layers=mask_layers,
+                   mean_layer=mean_layer,
+                   var_layer=var_layer,
+                   bcube=bcube,
+                   mip=stats_mip,
+                   chunk_xy=chunk_xy,
+                   chunk_z=chunk_z)
 
         # create scheduler and execute the job
+            scheduler.register_job(compute_stats_job, job_name=f"Compute Stats. Layer: {l}, Bcube: {bcube}")
+            scheduler.execute_until_completion()
+
+        dst_layer = l.get_sublayer(
+                    name=f"{l.name}{suffix}",
+                    path=os.path.join(dst_folder, f"{l.name}{suffix}"),
+                    layer_type=l.get_layer_type(),
+                    dtype='float32',
+                    overwrite_info=True
+                    )
+
+        for mip in range(mip_start, mip_end + 1):
+            normalize_job = NormalizeJob(src_layer=l,
+                    mask_layers=mask_layers,
+                    dst_layer=deepcopy(dst_layer),
+                    mean_layer=mean_layer,
+                    var_layer=var_layer,
+                    stats_mip=stats_mip,
+                    mip=mip,
+                    bcube=bcube,
+                    chunk_xy=chunk_xy,
+                    chunk_z=chunk_z,
+                    mask_value=mask_value)
+
+            # create scheduler and execute the job
         scheduler.register_job(normalize_job, job_name=f"Normalize {bcube}, MIP {mip}")
+        result_report += f"Normalized {l} -> {dst_layer}\n"
     scheduler.execute_until_completion()
+    print (result_report)

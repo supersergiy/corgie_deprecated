@@ -12,7 +12,7 @@ from corgie.argparsers import LAYER_HELP_STR, \
 
 class RenderJob(scheduling.Job):
     def __init__(self, src_stack, dst_stack, mip, pad, render_masks,
-                 blackout_masks, bcube, chunk_xy, chunk_z):
+                 blackout_masks, bcube, chunk_xy, chunk_z, additional_fields=[]):
         self.src_stack = src_stack
         self.dst_stack = dst_stack
         self.mip = mip
@@ -22,6 +22,7 @@ class RenderJob(scheduling.Job):
         self.chunk_z = chunk_z
         self.render_masks = render_masks
         self.blackout_masks = blackout_masks
+        self.additional_fields = additional_fields
 
         if render_masks:
             write_layers = self.dst_stack.get_layers_of_type(["img", "mask"])
@@ -46,15 +47,16 @@ class RenderJob(scheduling.Job):
                             render_masks=self.render_masks,
                             mip=self.mip,
                             pad=self.pad,
-                            bcube=input_chunk) for input_chunk in chunks]
+                            bcube=input_chunk,
+                            additional_fields=self.additional_fields) for input_chunk in chunks]
         corgie_logger.info(f"Yielding render tasks for bcube: {self.bcube}, MIP: {self.mip}")
 
         yield tasks
 
 
 class RenderTask(scheduling.Task):
-    def __init__(self, src_stack, dst_stack, render_masks, blackout_masks, mip, pad,
-                 bcube):
+    def __init__(self, src_stack, dst_stack, additional_fields, render_masks,
+            blackout_masks, mip, pad, bcube):
         super().__init__(self)
         self.src_stack = src_stack
         self.dst_stack = dst_stack
@@ -63,9 +65,13 @@ class RenderTask(scheduling.Task):
         self.mip = mip
         self.bcube = bcube
         self.pad = pad
+        self.additional_fields = additional_fields
 
     def __call__(self):
         padded_bcube = self.bcube.uncrop(self.pad, self.mip)
+
+        for f in self.additional_fields:
+            self.src_stack.add_layer(f)
 
         src_translation, src_data_dict = self.src_stack.read_data_dict(padded_bcube,
                 mip=self.mip, stack_name='src')
@@ -95,6 +101,9 @@ class RenderTask(scheduling.Task):
 
             cropped_out = helpers.crop(warped_src, self.pad)
             l.write(cropped_out, bcube=self.bcube, mip=self.mip)
+
+        for f in self.additional_fields:
+            self.src_stack.remove_layer(f.name)
 
 
 @click.command()

@@ -22,13 +22,16 @@ class CVDataBackend(DataBackendBase):
 
 
 class CVLayerBase(BaseLayerBackend):
-    def __init__(self, path, backend, reference=None, chunk_z=None, **kwargs):
+    def __init__(self, path, backend, reference=None, chunk_z=None, overwrite_info=False, **kwargs):
         super().__init__(**kwargs)
         self.path = path
         self.cv = MiplessCloudVolume(path)
         self.backend = backend
 
         try:
+            if overwrite_info:
+                raise cv.exceptions.InfoUnavailableError
+
             info = self.cv.get_info()
             if self.dtype is not None:
                 if self.dtype != info['data_type']:
@@ -58,7 +61,6 @@ class CVLayerBase(BaseLayerBackend):
                 if chunk_z is not None:
                     for scale in info['scales']:
                         scale['chunk_sizes'][0][-1] = chunk_z
-
                 self.cv = MiplessCloudVolume(path,
                         info=info)
 
@@ -70,7 +72,7 @@ class CVLayerBase(BaseLayerBackend):
         if path is None:
             path = os.path.join(self.cv.path, layer_type, name)
 
-        return self.backend.create_layer(path=sublayer_path, layer_type=layer_type,
+        return self.backend.create_layer(path=path, layer_type=layer_type,
                 reference=self, **kwargs)
 
     def read_backend(self, bcube, mip):
