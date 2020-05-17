@@ -11,7 +11,14 @@ Welcome to corgie's documentation!
    :caption: Contents:
 
    install 
-   examples 
+   walkthrough
+   layers
+   processors
+   commands
+   distributed
+   gpu
+   devguide 
+
 
 
 
