@@ -5,8 +5,6 @@ from copy import deepcopy
 from corgie import scheduling
 from corgie import helpers, stack
 from corgie.log import logger as corgie_logger
-from corgie.scheduling import pass_scheduler
-from corgie.data_backends import pass_data_backend
 from corgie.layers import get_layer_types, DEFAULT_LAYER_TYPE, \
                              str_to_layer_type
 from corgie.boundingcube import get_bcube_from_coords
@@ -70,7 +68,8 @@ class NormalizeTask(scheduling.Task):
         self.bcube = bcube
         self.mask_value = mask_value
 
-    def __call__(self):
+    def execute(self):
+        corgie_logger.info(f"Normalizing {self.src_layer} at MIP{self.mip}, region: {self.bcube}")
         mean_data = self.mean_layer.read(self.bcube, mip=self.stats_mip)
         var_data = self.var_layer.read(self.bcube, mip=self.stats_mip)
 
@@ -173,12 +172,13 @@ def normalize(ctx, src_layer_spec, dst_folder, stats_mip,
 
         dst_layer = l.get_sublayer(
                     name=f"{l.name}{suffix}",
-                    path=os.path.join(dst_folder, f"{l.name}{suffix}"),
+                    path=os.path.join(dst_folder, "img", f"{l.name}{suffix}"),
                     layer_type=l.get_layer_type(),
                     dtype='float32',
                     overwrite_info=True
                     )
 
+        result_report += f"Normalized {l} -> {dst_layer}\n"
         for mip in range(mip_start, mip_end + 1):
             normalize_job = NormalizeJob(src_layer=l,
                     mask_layers=mask_layers,
@@ -193,7 +193,6 @@ def normalize(ctx, src_layer_spec, dst_folder, stats_mip,
                     mask_value=mask_value)
 
             # create scheduler and execute the job
-        scheduler.register_job(normalize_job, job_name=f"Normalize {bcube}, MIP {mip}")
-        result_report += f"Normalized {l} -> {dst_layer}\n"
+            scheduler.register_job(normalize_job, job_name=f"Normalize {bcube}, MIP {mip}")
     scheduler.execute_until_completion()
-    print (result_report)
+    corgie_logger.info(result_report)

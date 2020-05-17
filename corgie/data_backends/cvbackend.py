@@ -35,10 +35,9 @@ class CVLayerBase(BaseLayerBackend):
             info = self.cv.get_info()
             if self.dtype is not None:
                 if self.dtype != info['data_type']:
-                    raise exceptions.CorgieException(f"Existing info type {info['data_type']} conflicts with "
+                    raise exceptions.CorgieException(f"Existing info type {info['data_type']} of layer "
+                            f"{str(self)} conflicts with "
                             f"specified data type {self.dtype}")
-            else:
-                self.dtype = info['data_type']
 
         except cv.exceptions.InfoUnavailableError as e:
             if reference is None:
@@ -64,6 +63,7 @@ class CVLayerBase(BaseLayerBackend):
                 self.cv = MiplessCloudVolume(path,
                         info=info)
 
+        self.dtype = info['data_type']
 
     def __str__(self):
         return "CV {}".format(self.path)

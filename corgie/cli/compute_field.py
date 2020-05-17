@@ -15,52 +15,90 @@ from corgie.cli.ensure_data_at_mip import EnsureDataAtMipJob
 
 class ComputeFieldJob(scheduling.Job):
     def __init__(self, src_stack, tgt_stack, dst_layer, chunk_xy, chunk_z,
-            processor_spec, pad, crop, bcube, tgt_z_offset, mip, suffix=''):
+            processor_spec, pad, crop, bcube, tgt_z_offset, processor_mip, suffix=''):
         self.src_stack = src_stack
         self.tgt_stack = tgt_stack
         self.dst_layer = dst_layer
         self.chunk_xy = chunk_xy
         self.chunk_z = chunk_z
-        self.processor_spec = processor_spec
         self.pad = pad
         self.crop = crop
         self.bcube = bcube
         self.tgt_z_offset = tgt_z_offset
-        self.mip=mip
         self.suffix = suffix #in case this job wants to make more layers
-        self.dst_layer.declare_write_region(self.bcube,
-                    mips=[mip], chunk_xy=chunk_xy, chunk_z=chunk_z)
 
+        self.processor_spec = processor_spec
+        self.processor_mip = processor_mip
+        if isinstance(self.processor_spec, str):
+            self.processor_spec = [self.processor_spec]
+        if isinstance(self.processor_mip, int):
+            self.processor_mip = [self.processor_mip]
+
+        if len(self.processor_mip) != len(self.processor_spec):
+            raise exceptions.CorgieException("The number of processors doesn't "
+                    "match the number of specified processor MIPs")
+
+        self.dst_layer.declare_write_region(self.bcube,
+                    mips=self.processor_mip, chunk_xy=chunk_xy, chunk_z=chunk_z)
 
         super().__init__()
 
     def task_generator(self):
         all_layers = self.src_stack.get_layers() + self.tgt_stack.get_layers()
-        for layer in all_layers:
-            prepare_data_job = EnsureDataAtMipJob(src_layer=layer, mip=self.mip, do_downsample=True,
-                    do_upsample=False, bcube=self.bcube, chunk_xy=self.chunk_xy, chunk_z=self.chunk_z,
-                    wait_until_done=True)
-            yield from prepare_data_job.task_generator
 
-        chunks = self.dst_layer.break_bcube_into_chunks(
-                    bcube=self.bcube,
-                    chunk_xy=self.chunk_xy,
-                    chunk_z=self.chunk_z,
-                    mip=self.mip)
+        last_mip = None
+        for i in range(len(self.processor_spec)) :
+            this_proc = self.processor_spec[i]
+            this_proc_mip = self.processor_mip[i]
+            is_last_proc = i == len(self.processor_spec) - 1
 
-        tasks = [ComputeFieldTask(processor_spec=self.processor_spec,
-                                  src_stack=self.src_stack,
-                                  tgt_stack=self.tgt_stack,
-                                  dst_layer=self.dst_layer,
-                                  mip=self.mip,
-                                  pad=self.pad,
-                                  crop=self.crop,
-                                  tgt_z_offset = self.tgt_z_offset,
-                                  bcube=chunk) for chunk in chunks]
+            chunks = self.dst_layer.break_bcube_into_chunks(
+                        bcube=self.bcube,
+                        chunk_xy=self.chunk_xy,
+                        chunk_z=self.chunk_z,
+                        mip=this_proc_mip)
 
-        corgie_logger.debug("Yielding CF tasks for bcube: {}, MIP: {}".format(
-            self.bcube, self.mip))
-        yield tasks
+            tasks = [ComputeFieldTask(src_stack=self.src_stack,
+                                      tgt_stack=self.tgt_stack,
+                                      dst_layer=self.dst_layer,
+                                      processor_spec=this_proc,
+                                      mip=this_proc_mip,
+                                      pad=self.pad,
+                                      crop=self.crop,
+                                      tgt_z_offset = self.tgt_z_offset,
+                                      bcube=chunk) for chunk in chunks]
+
+            corgie_logger.debug("Yielding CF tasks for bcube: {}, MIP: {}".format(
+                self.bcube, this_proc_mip))
+            yield tasks
+
+            if not is_last_proc:
+                yield scheduling.wait_until_done
+                next_proc_mip = self.processor_mip[i + 1]
+                if this_proc_mip > next_proc_mip:
+                    downsample_job = DownsampleJob(
+                                src_layer=self.dst_layer,
+                                chunk_xy=self.chunk_xy,
+                                chunk_z=self.chunk_z,
+                                mip_start=this_proc_mip,
+                                mip_end=next_proc_mip,
+                                bcube=self.bcube
+                                )
+                    yield from downsample_job.task_generator
+                    yield scheduling.wait_until_done
+
+
+        if self.processor_mip[0] > self.processor_mip[-1]:
+            # good manners
+            # prepare the ground for the next you
+            downsample_job = DownsampleJob(
+                            src_layer=self.dst_layer,
+                            chunk_xy=self.chunk_xy,
+                            chunk_z=self.chunk_z,
+                            mip_start=self.processor_mip[-1],
+                            mip_end=self.processor_mip[0],
+                            bcube=self.bcube
+                            )
 
 
 class ComputeFieldTask(scheduling.Task):
@@ -77,7 +115,7 @@ class ComputeFieldTask(scheduling.Task):
         self.tgt_z_offset = tgt_z_offset
         self.bcube = bcube
 
-    def __call__(self):
+    def execute(self):
         src_bcube = self.bcube.uncrop(self.pad, self.mip)
         tgt_bcube = src_bcube.translate(z=self.tgt_z_offset)
 
@@ -114,15 +152,17 @@ class ComputeFieldTask(scheduling.Task):
         help= "Specification for the destination layer. Must be a field type." + \
                 " DEFAULT: source reference key path + /field/cf_field + (_{suffix})?")
 
-@corgie_option('--reference_key',       nargs=1, type=str, default='img')
+@corgie_option('--reference_key',        nargs=1, type=str, default='img')
 
 @corgie_optgroup('Compute Field Method Specification')
-@corgie_option('--processor_spec',       nargs=1, type=str, required=True)
 @corgie_option('--chunk_xy',       '-c', nargs=1, type=int, default=1024)
 @corgie_option('--chunk_z',              nargs=1, type=int, default=1)
 @corgie_option('--pad',                  nargs=1, type=int, default=512)
 @corgie_option('--crop',                 nargs=1, type=int, default=None)
-@corgie_option('--mip',                  nargs=1, type=int, required=True)
+@corgie_option('--processor_spec',       nargs=1, type=str, multiple=True,
+        required=True)
+@corgie_option('--mip',                  nargs=1, type=int, multiple=True,
+        required=True)
 
 @corgie_optgroup('Data Region Specification')
 @corgie_option('--start_coord',      nargs=1, type=str, required=True)

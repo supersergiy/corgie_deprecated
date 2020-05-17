@@ -61,7 +61,7 @@ class CopyTask(scheduling.Task):
         self.mip = mip
         self.bcube = bcube
 
-    def __call__(self):
+    def execute(self):
         src_translation, src_data_dict = self.src_stack.read_data_dict(self.bcube,
                 mip=self.mip, translation_adjuster=None, stack_name='src')
 
@@ -99,18 +99,22 @@ class CopyTask(scheduling.Task):
 @corgie_option('--chunk_z',              nargs=1, type=int, default=1)
 @corgie_option('--mip',                  nargs=1, type=int, required=True)
 @corgie_option('--blackout_masks/--no_blackout_masks',      default=False)
-@corgie_option('--copy_masks/--no_copy_masks',              default=False)
+@corgie_option('--copy_masks/--no_copy_masks',              default=True)
 
 @corgie_optgroup('Data Region Specification')
 @corgie_option('--start_coord',      nargs=1, type=str, required=True)
 @corgie_option('--end_coord',        nargs=1, type=str, required=True)
 @corgie_option('--coord_mip',        nargs=1, type=int, default=0)
-@corgie_option('--suffix',           nargs=1, type=str, default='')
+@corgie_option('--suffix',           nargs=1, type=str, default=None)
 
 @click.pass_context
 def copy(ctx, src_layer_spec, dst_folder, copy_masks, blackout_masks,
          chunk_xy, chunk_z, start_coord, end_coord, coord_mip, mip, suffix):
     scheduler = ctx.obj['scheduler']
+    if suffix is None:
+        suffix = ''
+    else:
+        suffix = f"_{suffix}"
 
     corgie_logger.debug("Setting up layers...")
     src_stack = create_stack_from_spec(src_layer_spec,
@@ -118,7 +122,7 @@ def copy(ctx, src_layer_spec, dst_folder, copy_masks, blackout_masks,
 
     dst_stack = stack.create_stack_from_reference(reference_stack=src_stack,
             folder=dst_folder, name="dst", types=["img", "mask"], readonly=False,
-            chunk_z=chunk_z)
+            chunk_z=chunk_z, suffix=suffix)
 
     bcube = get_bcube_from_coords(start_coord, end_coord, coord_mip)
 

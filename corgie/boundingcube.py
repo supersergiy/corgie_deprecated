@@ -3,7 +3,6 @@ import copy
 from math import floor, ceil
 import numpy as np
 
-from corgie import scheduling
 from corgie.helpers import crop
 
 def get_bcube_from_coords(start_coord, end_coord, coord_mip,
@@ -18,7 +17,6 @@ def get_bcube_from_coords(start_coord, end_coord, coord_mip,
 
     return bcube
 
-@scheduling.sendable
 class BoundingCube:
     def __init__(self, xs, xe, ys, ye, zs, ze, mip):
         self.m0_x = (None, None)
@@ -70,23 +68,29 @@ class BoundingCube:
         return True
 
     def reset_coords(self, xs=None, xe=None,
-            ys=None, ye=None, zs=None, ze=None, mip=0):
+            ys=None, ye=None, zs=None, ze=None, mip=0, in_place=True):
 
+        if in_place:
+            target_cube = self
+        else:
+            target_cube = copy.deepcopy(self)
         scale_factor = 2**mip
         if xs is not None:
-            self.m0_x =  (int(xs * scale_factor), self.m0_x[1])
+            target_cube.m0_x =  (int(xs * scale_factor), target_cube.m0_x[1])
         if xe is not None:
-            self.m0_x = (self.m0_x[0], int(xe * scale_factor))
+            target_cube.m0_x = (target_cube.m0_x[0], int(xe * scale_factor))
 
         if ys is not None:
-            self.m0_y =  (int(ys * scale_factor), self.m0_y[1])
+            target_cube.m0_y =  (int(ys * scale_factor), target_cube.m0_y[1])
         if ye is not None:
-            self.m0_y = (self.m0_y[0], int(ye * scale_factor))
+            target_cube.m0_y = (target_cube.m0_y[0], int(ye * scale_factor))
 
         if zs is not None:
-            self.z =  (int(zs), self.z[1])
+            target_cube.z =  (int(zs), target_cube.z[1])
         if ze is not None:
-            self.z = (self.z[0], int(ze))
+            target_cube.z = (target_cube.z[0], int(ze))
+
+        return target_cube
 
     def get_offset(self, mip=0):
         scale_factor = 2**mip
@@ -206,27 +210,5 @@ class BoundingCube:
         x_range = self.x_range(mip=mip)
         y_range = self.y_range(mip=mip)
         return slice(*x_range), slice(*y_range), slice(*self.z)
-
-    def cutout(self, xs=None, xe=None,
-            ys=None, ye=None, zs=None, ze=None, mip=0):
-        res_xs, res_xe = self.x_range(mip)
-        res_ys, res_ye = self.y_range(mip)
-        res_zs, res_ze = self.z_range()
-
-        if xs is not None:
-            res_xs = max(res_xs, xs)
-        if xe is not None:
-            res_xe = min(res_xe, xe)
-        if ys is not None:
-            res_ys = max(res_ys, ys)
-        if ye is not None:
-            res_ye = min(res_ye, ye)
-        if zs is not None:
-            res_zs = max(res_zs, zs)
-        if ze is not None:
-            res_ze = min(res_ze, ze)
-
-        return BoundingCube(xs=res_xs, xe=res_xe,
-                ys=res_ys, ye=res_ye, zs=res_zs, ze=res_ze, mip=mip)
 
 

@@ -1,3 +1,6 @@
+from gevent import monkey
+monkey.patch_all()
+
 import json
 import click
 
@@ -47,6 +50,8 @@ class GroupWithCommandOptions(click.Group):
             original_invoke(ctx)
 
         return command_invoke
+
+
 @click.group()
 def helper():
     ''' Learn more about using corgie! Specify the topic that

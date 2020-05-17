@@ -12,32 +12,17 @@ from corgie import helpers
 class VolumetricLayer(BaseLayerType):
     def __init__(self, data_mip_ranges=None, **kwargs):
         super().__init__(**kwargs)
-        self.mip_has_data = [True for _ in range(0, constants.MAX_MIP + 1)]
-        if data_mip_ranges is not None:
-            for i in range(len(self.mip_has_data)):
-                self.mip_has_data[i] = False
-
-            for l, h in data_mip_ranges:
-                for i in range(l, h):
-                    self.mip_has_data[i] = True
-
         self.declared_write_mips = []
         self.declared_write_bcube = BoundingCube(0, 0, 0, 0, 0, 0, 0)
 
-    def has_data(self, mip):
-        return self.mip_has_data[mip]
-
     def read(self, bcube, mip, **kwargs):
         indexed_bcube = self.indexing_scheme(bcube, mip, kwargs)
-        if not self.has_data(mip):
-            raise exceptions.NoMipDataException(self.path, mip)
         return super().read(bcube=indexed_bcube, mip=mip, **kwargs)
 
     def write(self, data_tens, bcube, mip, **kwargs):
         self.check_write_region(bcube, mip)
         indexed_bcube = self.indexing_scheme(bcube, mip, kwargs)
         super().write(data_tens=data_tens, bcube=indexed_bcube, mip=mip, **kwargs)
-        self.mip_has_data[mip] = True
 
     def check_write_region(self, bcube, mip):
         if mip not in self.declared_write_mips or \
@@ -132,10 +117,22 @@ class FieldLayer(VolumetricLayer):
         super().write(data_field, **kwargs)
 
     def get_downsampler(self):
-        raise DownsampleFieldJob
+        def downsampler(data_tens):
+            return torch.nn.functional.interpolate(data_tens.float(),
+                    mode='bilinear',
+                    scale_factor=1/2,
+                    align_corners=False,
+                    recompute_scale_factor=False)
+        return downsampler
 
     def get_upsampler(self):
-        raise UpsampleFieldJob
+        def upsampler(data_tens):
+            return torch.nn.functional.interpolate(data_tens.float(),
+                    mode='bilinear',
+                    scale_factor=2.0,
+                    align_corners=False,
+                    recompute_scale_factor=False)
+        return upsampler
 
     def get_num_channels(self, *args, **kwargs):
         return 2
@@ -162,10 +159,20 @@ class MaskLayer(VolumetricLayer):
         return data_bin
 
     def get_downsampler(self):
-        raise DownsampleMaskJob
+        def downsampler(data_tens):
+            return torch.nn.functional.interpolate(data_tens.float(),
+                    mode='nearest',
+                    scale_factor=1/2,
+                    recompute_scale_factor=False)
+        return downsampler
 
     def get_upsampler(self):
-        raise UpsampleMaskJob
+        def upsampler(data_tens):
+            return torch.nn.functional.interpolate(data_tens.float(),
+                    mode='nearest',
+                    scale_factor=2.0,
+                    recompute_scale_factor=False)
+        return upsampler
 
     def get_num_channels(self, *args, **kwargs):
         return 1

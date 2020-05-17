@@ -2,6 +2,7 @@ import mazepa
 
 wait_until_done = mazepa.Barrier
 Task = mazepa.Task
+Executor = mazepa.Executor
 
 class Job(mazepa.Job):
     def __init__(self, *kargs, **kwargs):

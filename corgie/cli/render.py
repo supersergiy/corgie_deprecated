@@ -67,7 +67,7 @@ class RenderTask(scheduling.Task):
         self.pad = pad
         self.additional_fields = additional_fields
 
-    def __call__(self):
+    def execute(self):
         padded_bcube = self.bcube.uncrop(self.pad, self.mip)
 
         for f in self.additional_fields:

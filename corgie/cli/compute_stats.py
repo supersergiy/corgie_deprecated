@@ -6,8 +6,6 @@ from click_option_group import optgroup
 from corgie import scheduling
 from corgie import helpers
 from corgie.log import logger as corgie_logger
-from corgie.scheduling import pass_scheduler
-from corgie.data_backends import pass_data_backend
 from corgie.layers import get_layer_types, DEFAULT_LAYER_TYPE, \
                              str_to_layer_type
 from corgie.boundingcube import get_bcube_from_coords
@@ -119,7 +117,7 @@ class ComputeStatsTask(scheduling.Task):
         self.bcube = bcube
         self.write_channel = write_channel
 
-    def __call__(self):
+    def execute(self):
         src_data = self.src_layer.read(bcube=self.bcube,
                 mip=self.mip)
         mask_data = helpers.read_mask_list(

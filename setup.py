@@ -11,7 +11,7 @@ setuptools.setup(
     description="Connectomics Registration General Inference Engine",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/seugnlab/corgie",
+    url="https://github.com/supersergiy/corgie",
     include_package_data=True,
     package_data={'': ['*.py']},
     install_requires=[
@@ -21,13 +21,16 @@ setuptools.setup(
       'six',
       'mazepa',
       'click',
-      'click-option-group'
+      'click-option-group',
+      'procspec',
+      'modelhouse'
     ],
     entry_points={
         "console_scripts": [
             "corgie = corgie.main:cli",
-            "corgie-help = corgie.main:helper",
+            "corgie-worker= corgie.worker:worker",
         ],
     },
     packages=setuptools.find_packages(),
+    python_requires='>=3.7',
 )

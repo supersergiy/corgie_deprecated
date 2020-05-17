@@ -1,11 +1,9 @@
 import click
+from copy import deepcopy
 
 from corgie import scheduling, argparsers, helpers, stack
 
 from corgie.log import logger as corgie_logger
-from corgie.scheduling import pass_scheduler
-
-from corgie.data_backends import pass_data_backend
 from corgie.layers import get_layer_types, DEFAULT_LAYER_TYPE, \
                              str_to_layer_type
 from corgie.boundingcube import get_bcube_from_coords
@@ -20,7 +18,7 @@ from corgie.cli.compute_field import ComputeFieldJob
 
 class AlignBlockJob(scheduling.Job):
     def __init__(self, src_stack, tgt_stack, dst_stack, cf_method, render_method,
-                 bcube, mip, copy_start=True, backward=False, suffix=None):
+                 bcube, copy_start=True, backward=False, suffix=None):
         self.src_stack = src_stack
         self.tgt_stack = tgt_stack
         self.dst_stack = dst_stack
@@ -28,7 +26,6 @@ class AlignBlockJob(scheduling.Job):
 
         self.cf_method = cf_method
         self.render_method = render_method
-        self.mip = mip
 
         self.copy_start = copy_start
         self.backward = backward
@@ -47,7 +44,7 @@ class AlignBlockJob(scheduling.Job):
             z_end = self.bcube.z_range()[0]
             z_step = -1
 
-        start_sec_bcube = self.bcube.cutout(zs=z_start, ze=z_start + 1)
+        start_sec_bcube = self.bcube.reset_coords(zs=z_start, ze=z_start + 1, in_place=False)
         if self.copy_start:
             render_job = self.render_method(
                     src_stack=self.src_stack,
@@ -55,14 +52,14 @@ class AlignBlockJob(scheduling.Job):
                     bcube=start_sec_bcube)
 
             yield from render_job.task_generator
+            yield scheduling.wait_until_done
         src_bcube = start_sec_bcube
 
         align_field_layer = self.dst_stack.create_sublayer(f'aign_field{self.suffix}',
                 layer_type='field')
         for z in range(z_start + z_step, z_end + z_step, z_step):
             tgt_bcube = src_bcube
-            src_bcube = self.bcube.cutout(zs=z, ze=z + 1)
-
+            src_bcube = self.bcube.reset_coords(zs=z, ze=z + 1, in_place=False)
             compute_field_job = self.cf_method(
                     src_stack=self.src_stack,
                     tgt_stack=self.dst_stack,
@@ -110,12 +107,16 @@ class AlignBlockJob(scheduling.Job):
 @corgie_option('--render_chunk_xy',     nargs=1, type=int,  default=3072)
 
 @corgie_optgroup('Compute Field Method Specification')
-@corgie_option('--processor_spec',      nargs=1, type=str, required=True)
+@corgie_option('--processor_spec',      nargs=1, type=str, required=True,
+        multiple=True)
 @corgie_option('--chunk_xy',      '-c', nargs=1, type=int, default=1024)
 @corgie_option('--pad',                 nargs=1, type=int, default=256)
 @corgie_option('--crop',                nargs=1, type=int, default=None)
-@corgie_option('--mip',           '-m', nargs=1, type=int, required=True)
+@corgie_option('--processor_mip', '-m', nargs=1, type=int, required=True,
+        multiple=True)
 @corgie_option('--copy_start/--no_copy_start',             default=True)
+@corgie_option('--mode', type=click.Choice(['forward', 'backword', 'bidirectional']),
+        default='forward')
 
 @corgie_optgroup('Data Region Specification')
 @corgie_option('--start_coord',        nargs=1, type=str, required=True)
@@ -124,12 +125,12 @@ class AlignBlockJob(scheduling.Job):
 
 @click.pass_context
 def align_block(ctx, src_layer_spec, tgt_layer_spec, dst_folder, render_pad, render_chunk_xy,
-        processor_spec, pad, crop, mip, chunk_xy, start_coord, end_coord, coord_mip, suffix,
-        copy_start, chunk_z=1):
+        processor_spec, pad, crop, processor_mip, chunk_xy, start_coord, end_coord, coord_mip,
+        suffix, copy_start, mode, chunk_z=1):
     scheduler = ctx.obj['scheduler']
 
     if suffix is None:
-        suffix = ''
+        suffix = '_aligned'
     else:
         suffix = f"_{suffix}"
 
@@ -153,14 +154,14 @@ def align_block(ctx, src_layer_spec, tgt_layer_spec, dst_folder, render_pad, ren
             chunk_z=1,
             blackout_masks=False,
             render_masks=True,
-            mip=mip
+            mip=min(processor_mip)
             )
 
     cf_method = helpers.PartialSpecification(
             f=ComputeFieldJob,
             pad=pad,
             crop=crop,
-            mip=mip,
+            processor_mip=processor_mip,
             processor_spec=processor_spec,
             chunk_xy=chunk_xy,
             chunk_z=1
@@ -168,20 +169,50 @@ def align_block(ctx, src_layer_spec, tgt_layer_spec, dst_folder, render_pad, ren
 
     bcube = get_bcube_from_coords(start_coord, end_coord, coord_mip)
 
-    # create scheduler and execute the job
-    align_block_job = AlignBlockJob(src_stack=src_stack,
+    if mode == 'bidirectional':
+        z_mid = (bcube.z_range()[1] + bcube.z_range()[0]) // 2
+        bcube_back = bcube.reset_coords(ze=z_mid, in_place=False)
+        bcube_forv = bcube.reset_coords(zs=z_mid, in_place=False)
+
+        align_block_job_back = AlignBlockJob(src_stack=src_stack,
                                     tgt_stack=tgt_stack,
                                     dst_stack=dst_stack,
-                                    bcube=bcube,
+                                    bcube=bcube_back,
                                     render_method=render_method,
                                     cf_method=cf_method,
                                     suffix=suffix,
-                                    mip=mip,
-                                    copy_start=copy_start)
+                                    copy_start=copy_start,
+                                    backward=True)
+        scheduler.register_job(align_block_job_back, job_name="Backward Align Block {}".format(bcube))
 
-    # create scheduler and execute the job
-    scheduler.register_job(align_block_job, job_name="Align Block {}".format(bcube))
+        align_block_job_forv = AlignBlockJob(src_stack=src_stack,
+                                    tgt_stack=tgt_stack,
+                                    dst_stack=deepcopy(dst_stack),
+                                    bcube=bcube_forv,
+                                    render_method=render_method,
+                                    cf_method=cf_method,
+                                    suffix=suffix,
+                                    copy_start=True,
+                                    backward=False)
+        scheduler.register_job(align_block_job_forv, job_name="Forward Align Block {}".format(bcube))
+    else:
+        align_block_job = AlignBlockJob(src_stack=src_stack,
+                                        tgt_stack=tgt_stack,
+                                        dst_stack=dst_stack,
+                                        bcube=bcube,
+                                        render_method=render_method,
+                                        cf_method=cf_method,
+                                        suffix=suffix,
+                                        copy_start=copy_start,
+                                        backward=mode=='backward')
+
+        # create scheduler and execute the job
+        scheduler.register_job(align_block_job, job_name="Align Block {}".format(bcube))
+
     scheduler.execute_until_completion()
+    result_report = f"Aligned layers {[str(l) for l in src_stack.get_layers_of_type('img')]}. " \
+            f"Results in {[str(l) for l in dst_stack.get_layers_of_type('img')]}"
+    corgie_logger.info(result_report)
 
 
 

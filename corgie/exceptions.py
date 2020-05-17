@@ -15,13 +15,6 @@ class ArgumentError(CorgieException):
         super().__init__(self.msg)
 
 
-class NoMipDataException(CorgieException):
-    def __init__(self, layer, mip):
-        self.msg = "\nLayer: {}\n MIP: {} declared to have no data."\
-            " Refer to TODO for more info".format(str(layer), mip)
-        super().__init__(self.msg)
-
-
 class ReadError(CorgieException):
     def __init__(self, layer, reason):
         self.msg = "\nLayer '{}': \n{}".format(str(layer), reason)

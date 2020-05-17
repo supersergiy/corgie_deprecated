@@ -2,7 +2,6 @@ import click
 
 from corgie import scheduling
 from corgie.log import logger as corgie_logger
-from corgie.scheduling import pass_scheduler
 from corgie.data_backends import pass_data_backend
 from corgie.layers import get_layer_types, DEFAULT_LAYER_TYPE, \
                              str_to_layer_type
@@ -67,14 +66,14 @@ class DownsampleTask(scheduling.Task):
         self.mip_end = mip_end
         self.bcube = bcube
 
-    def __call__(self):
-        src_data = self.src_layer.read(self.bcube, mip=self.mip_start)
+    def execute(self):
+        src_data = self.src_layer.read(bcube=self.bcube, mip=self.mip_start)
         # How to downsample depends on layer type.
         # Images are avg pooled, masks are max pooled, segmentation is...
         downsampler = self.src_layer.get_downsampler()
         for mip in range(self.mip_start, self.mip_end):
             dst_data = downsampler(src_data)
-            self.dst_layer.write(dst_data, self.bcube, mip=mip+1)
+            self.dst_layer.write(dst_data, bcube=self.bcube, mip=mip+1)
             src_data = dst_data
 
 
@@ -134,3 +133,5 @@ def downsample(ctx, src_layer_spec, dst_layer_spec, mip_start,
     # create scheduler and execute the job
     scheduler.register_job(downsample_job, job_name="downsample")
     scheduler.execute_until_completion()
+    result_report = f"Downsampled {src_layer} from {mip_start} to {mip_end}. Result in {dst_layer}"
+    corgie_logger.info(result_report)

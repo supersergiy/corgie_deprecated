@@ -4,7 +4,6 @@ import six
 import cloudvolume
 from cloudvolume import CloudVolume, Storage
 
-from corgie import scheduling
 from corgie.log import logger as corgie_logger
 
 def deserialize_miplessCV_old(s, cache={}):
@@ -42,7 +41,6 @@ def deserialize_miplessCV(s, cache={}):
             cache[s] = mcv
             return mcv
 
-@scheduling.sendable
 class MiplessCloudVolume():
     """Multi-mip access to CloudVolumes using the same path
     """
