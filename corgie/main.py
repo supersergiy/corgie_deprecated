@@ -12,7 +12,8 @@ from corgie.data_backends import get_data_backends, str_to_backend, \
         DEFAULT_DATA_BACKEND, DataBackendBase
 from corgie.cli.downsample import downsample
 from corgie.scheduling import create_scheduler
-from corgie.cli import get_command_list, get_help_command_list
+
+from corgie.cli import get_command_list
 
 
 class GroupWithCommandOptions(click.Group):
@@ -52,12 +53,6 @@ class GroupWithCommandOptions(click.Group):
         return command_invoke
 
 
-@click.group()
-def helper():
-    ''' Learn more about using corgie! Specify the topic that
-    you'd like to learn more about as command (eg:
-    corgie-help stacks)'''
-
 @click.group(cls=GroupWithCommandOptions)
 @click.option('--queue_name', '-q', nargs=1, type=str, required=None)
 @click.option('--device',     '-d', 'device', nargs=1,
@@ -81,9 +76,6 @@ def cli(ctx, queue_name, device, verbose):
 
 for c in get_command_list():
     cli.add_command(c)
-
-for c in get_help_command_list():
-    helper.add_command(c)
 
 if __name__ == "__main__":
     cli()

@@ -20,6 +20,7 @@ setuptools.setup(
       'torchvision',
       'numpy',
       'six',
+      'pyyaml',
       'mazepa',
       'click',
       'click-option-group',

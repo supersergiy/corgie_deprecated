@@ -11,7 +11,6 @@ from corgie.argparsers import LAYER_HELP_STR, \
         create_layer_from_spec, corgie_optgroup, corgie_option, \
         create_stack_from_spec
 
-from corgie.cli.ensure_data_at_mip import EnsureDataAtMipJob
 
 class ComputeFieldJob(scheduling.Job):
     def __init__(self, src_stack, tgt_stack, dst_layer, chunk_xy, chunk_z,
