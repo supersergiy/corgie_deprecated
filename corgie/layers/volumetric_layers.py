@@ -118,20 +118,25 @@ class FieldLayer(VolumetricLayer):
 
     def get_downsampler(self):
         def downsampler(data_tens):
-            return torch.nn.functional.interpolate(data_tens.float(),
-                    mode='bilinear',
-                    scale_factor=1/2,
-                    align_corners=False,
+
+            downs_data = torch.nn.functional.interpolate(data_tens.float(),
+                                mode='bilinear',
+                                scale_factor=1/2,
+                                align_corners=False,
                     recompute_scale_factor=False)
+            return downs_data * 2
+
         return downsampler
 
     def get_upsampler(self):
         def upsampler(data_tens):
-            return torch.nn.functional.interpolate(data_tens.float(),
-                    mode='bilinear',
-                    scale_factor=2.0,
-                    align_corners=False,
+            ups_data = torch.nn.functional.interpolate(data_tens.float(),
+                                mode='bilinear',
+                                scale_factor=2.0,
+                                align_corners=False,
                     recompute_scale_factor=False)
+            return ups_data * 0.5
+
         return upsampler
 
     def get_num_channels(self, *args, **kwargs):

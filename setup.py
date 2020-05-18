@@ -28,7 +28,7 @@ setuptools.setup(
     entry_points={
         "console_scripts": [
             "corgie = corgie.main:cli",
-            "corgie-worker= corgie.worker:worker",
+            "corgie-worker = corgie.worker:worker",
         ],
     },
     packages=setuptools.find_packages(),
