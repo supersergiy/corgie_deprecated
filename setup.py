@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="corgie",
-    version="0.0.1",
+    version="0.0.2",
     author="Sergiy Popovych",
     author_email="sergiy.popovich@gmail.com",
     description="Connectomics Registration General Inference Engine",
@@ -16,6 +16,7 @@ setuptools.setup(
     package_data={'': ['*.py']},
     install_requires=[
       'torch',
+      'gevent',
       'torchvision',
       'numpy',
       'six',
