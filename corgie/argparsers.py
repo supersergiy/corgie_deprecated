@@ -22,8 +22,8 @@ LAYER_HELP_STR = """
    Format: JSON *string*. \n
    Optional keys: \n
    \t "type": str from {} ; \n
-   \t "name": str, DEFAULT -- same as layer type.
-    [required] if given more than 1 layer of the same type ; \n
+   \t "name": str, DEFAULT -- same as layer type. """\
+   """**Required** if given more than 1 layer of the same type ; \n
    \t "data_backend": str from {} ; \n
    \t "layer_args": a dictionary with additional layer parameters,
    eg binarization scheme for masks data_mip_ranges, etc; \n

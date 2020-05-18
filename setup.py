@@ -15,6 +15,7 @@ setuptools.setup(
     include_package_data=True,
     package_data={'': ['*.py']},
     install_requires=[
+      'sphinx-click',
       'torch',
       'gevent',
       'torchvision',

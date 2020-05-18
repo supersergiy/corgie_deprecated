@@ -92,7 +92,7 @@ class CopyTask(scheduling.Task):
 #
 @corgie_option('--dst_folder',  nargs=1,
         type=str, required=False,
-        help= "Folder where copied stack will go")
+        help= "Destination folder for the copied stack")
 
 @corgie_optgroup('Copy Method Specification')
 @corgie_option('--chunk_xy',       '-c', nargs=1, type=int, default=1024)

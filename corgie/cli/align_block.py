@@ -92,7 +92,7 @@ class AlignBlockJob(scheduling.Job):
 #
 @corgie_option('--tgt_layer_spec', '-t', nargs=1,
         type=str, required=False, multiple=True,
-        help='Target layer spec. Use multiple times to include all masks, fields, images. '\
+        help='Target layer spec. Use multiple times to include all masks, fields, images. \n'\
                 'DEFAULT: Same as source layers')
 
 @corgie_option('--dst_folder',  nargs=1, type=str, required=True,
