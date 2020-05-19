@@ -14,7 +14,6 @@ Welcome to corgie's documentation!
    walkthrough
    layers
    processors
-   commands
    distributed
    gpu
    devguide 
