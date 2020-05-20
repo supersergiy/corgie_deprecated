@@ -20,28 +20,15 @@ class VolumetricLayer(BaseLayerType):
         return super().read(bcube=indexed_bcube, mip=mip, **kwargs)
 
     def write(self, data_tens, bcube, mip, **kwargs):
-        self.check_write_region(bcube, mip)
         indexed_bcube = self.indexing_scheme(bcube, mip, kwargs)
         super().write(data_tens=data_tens, bcube=indexed_bcube, mip=mip, **kwargs)
-
-    def check_write_region(self, bcube, mip):
-        if mip not in self.declared_write_mips or \
-                not self.declared_write_bcube.contains(bcube):
-                    raise exceptions.WriteError(self,
-                            reason="Write outside of declared write region. \n"
-                            "Declared Write Region: \n   bcube: {}\n   MIPs: {}\n"
-                            "Write: \n   bcube: {},\n   MIP: {}".format(
-                                self.declared_write_bcube, self.declared_write_mips,
-                            bcube, mip))
-
-    def declare_write_region(self, bcube, mips, **kwargs):
-        self.declared_write_mips = list(mips)
-        self.declared_write_bcube = bcube
 
     def indexing_scheme(self, bcube, mip, kwargs):
         return bcube
 
-    def break_bcube_into_chunks(self, bcube, chunk_xy, chunk_z, mip, **kwargs):
+    def break_bcube_into_chunks(self, bcube, chunk_xy, chunk_z,
+            mip, flatten=True, chunk_xy_step=None, chunk_z_step=None,
+            **kwargs):
         """Default breaking up of a bcube into smaller bcubes (chunks).
         Returns a list of chunks
         Args:
@@ -55,16 +42,30 @@ class VolumetricLayer(BaseLayerType):
         y_range = indexed_bcube.y_range(mip=mip)
         z_range = indexed_bcube.z_range()
 
-        chunks = []
-        for zs in range(z_range[0], z_range[1], chunk_z):
-            for xs in range(x_range[0], x_range[1], chunk_xy):
-                for ys in range(y_range[0], y_range[1], chunk_xy):
-                    chunks.append(BoundingCube(xs, xs + chunk_xy,
-                                              ys, ys + chunk_xy,
-                                              zs, zs + chunk_z,
-                                              mip=mip))
+        if chunk_xy_step is None:
+            chunk_xy_step = chunk_xy
+        if chunk_z_step is None:
+            chunk_z_step = chunk_z
 
-        return chunks
+        xy_chunks = []
+        flat_chunks = []
+        for zs in range(z_range[0], z_range[1], chunk_z_step):
+            xy_chunks.append([])
+            for xs in range(x_range[0], x_range[1], chunk_xy_step):
+                xy_chunks[-1].append([])
+                for ys in range(y_range[0], y_range[1], chunk_xy_step):
+                    chunk = BoundingCube(xs, xs + chunk_xy,
+                                         ys, ys + chunk_xy,
+                                         zs, zs + chunk_z,
+                                         mip=mip)
+
+                    xy_chunks[-1][-1].append(chunk)
+                    flat_chunks.append(chunk)
+
+        if flatten:
+            return flat_chunks
+        else:
+            return xy_chunks
 
 
 @register_layer_type("img")
@@ -106,15 +107,6 @@ class FieldLayer(VolumetricLayer):
                         num_channels
                         ))
         super().__init__(*args, **kwargs)
-
-    def read(self, **kwargs):
-        data_tens = super().read(**kwargs)
-        data_field = data_tens.permute(0, 2, 3, 1)
-        return data_field
-
-    def write(self, data_tens, **kwargs):
-        data_field = data_tens.permute(0, 3, 1, 2)
-        super().write(data_field, **kwargs)
 
     def get_downsampler(self):
         def downsampler(data_tens):
@@ -209,9 +201,6 @@ class SectionValueLayer(VolumetricLayer):
         new_bcube.reset_coords(channel_start, channel_end, 0, 1, mip=mip)
         return new_bcube
 
-    def check_write_region(self, *args, **kwargs):
-        return True
-
     def supports_voxel_offset(self):
         return False
 
@@ -220,14 +209,3 @@ class SectionValueLayer(VolumetricLayer):
 
     def get_default_data_type(self):
         return 'float32'
-
-    '''kwargs):
-        new_bcube = self.convert_to_section_value_bcube(bcube)
-        return super().read_backend(new_bcube, mip, **kwargs)
-
-    def write(self, data_tens, bcube, mip, **kwargs):
-        super().write(data_tens, new_bcube, mip, **kwargs)
-
-    def declare_write_region(self, bcube, mips, **kwargs):
-        new_bcube = self.convert_to_section_value_bcube(bcube)
-        super().declare_write_region(new_bcube, mips, **kwargs)'''

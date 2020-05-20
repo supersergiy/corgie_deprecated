@@ -54,9 +54,6 @@ class ComputeStatsJob(scheduling.Job):
                 chunk_z=self.chunk_z,
                 mip=self.mip)
 
-        for l in [self.mean_layer, chunk_mean_layer, self.var_layer,
-                chunk_var_layer]:
-            l.declare_write_region(self.bcube, mips=[self.mip])
         # sort chunks by z
         chunks.sort(reverse=True, key=lambda c:c.z_range()[1])
 

@@ -11,26 +11,23 @@ from corgie.argparsers import LAYER_HELP_STR, \
         create_layer_from_spec, corgie_optgroup, corgie_option, \
         create_stack_from_spec
 
-from corgie.cli.common import ChunkedJob
-
 
 class ComputeFieldJob(scheduling.Job):
     def __init__(self, src_stack, tgt_stack, dst_layer,
-            chunk_xy, chunk_z, processor_spec, processor_mip,
-            pad, crop, blend_xy,
-            bcube, tgt_z_offset, suffix=''):
+            chunk_xy, chunk_z, processor_spec, pad, crop,
+            bcube, tgt_z_offset, processor_mip, suffix=''):
 
         self.src_stack = src_stack
         self.tgt_stack = tgt_stack
         self.dst_layer = dst_layer
         self.chunk_xy = chunk_xy
         self.chunk_z = chunk_z
-        self.blend_xy = blend_xy
         self.pad = pad
         self.crop = crop
         self.bcube = bcube
         self.tgt_z_offset = tgt_z_offset
         self.suffix = suffix #in case this job wants to make more layers
+
         self.processor_spec = processor_spec
         self.processor_mip = processor_mip
         if isinstance(self.processor_spec, str):
@@ -45,34 +42,36 @@ class ComputeFieldJob(scheduling.Job):
         super().__init__()
 
     def task_generator(self):
-        for i in range(len(self.processor_spec)):
+        self.dst_layer.declare_write_region(self.bcube,
+                    mips=self.processor_mip, chunk_xy=chunk_xy, chunk_z=chunk_z)
+
+        all_layers = self.src_stack.get_layers() + self.tgt_stack.get_layers()
+
+        last_mip = None
+        for i in range(len(self.processor_spec)) :
             this_proc = self.processor_spec[i]
             this_proc_mip = self.processor_mip[i]
             is_last_proc = i == len(self.processor_spec) - 1
 
-            this_task = helpers.PartialSpecification(
-                    ComputeFieldTask,
-                    src_stack=self.src_stack,
-                    tgt_stack=self.tgt_stack,
-                    processor_spec=this_proc,
-                    pad=self.pad,
-                    crop=self.crop,
-                    tgt_z_offset=self.tgt_z_offset
-                    )
+            chunks = self.dst_layer.break_bcube_into_chunks(
+                        bcube=self.bcube,
+                        chunk_xy=self.chunk_xy,
+                        chunk_z=self.chunk_z,
+                        mip=this_proc_mip)
 
-            chunked_job = ChunkedJob(
-                    task_class=this_task,
-                    dst_layer=self.dst_layer,
-                    chunk_xy=self.chunk_xy,
-                    chunk_z=self.chunk_z,
-                    blend_xy=self.blend_xy,
-                    mip=this_proc_mip,
-                    bcube=self.bcube,
-                    suffix=self.suffix
-                    )
+            tasks = [ComputeFieldTask(src_stack=self.src_stack,
+                                      tgt_stack=self.tgt_stack,
+                                      dst_layer=self.dst_layer,
+                                      processor_spec=this_proc,
+                                      mip=this_proc_mip,
+                                      pad=self.pad,
+                                      crop=self.crop,
+                                      tgt_z_offset = self.tgt_z_offset,
+                                      bcube=chunk) for chunk in chunks]
 
-
-            yield from chunked_job.task_generator
+            corgie_logger.debug("Yielding CF tasks for bcube: {}, MIP: {}".format(
+                self.bcube, this_proc_mip))
+            yield tasks
 
             if not is_last_proc:
                 yield scheduling.wait_until_done
@@ -132,9 +131,6 @@ class ComputeFieldTask(scheduling.Task):
 
         predicted_field = processor(processor_input)
         cropped_field = helpers.crop(predicted_field, self.crop)
-        cropped_field[:, 0] += src_translation.x
-        cropped_field[:, 1] += src_translation.y
-
         self.dst_layer.write(cropped_field, bcube=self.bcube, mip=self.mip)
 
 
@@ -162,14 +158,13 @@ class ComputeFieldTask(scheduling.Task):
 @corgie_optgroup('Compute Field Method Specification')
 @corgie_option('--chunk_xy',       '-c', nargs=1, type=int, default=1024)
 @corgie_option('--chunk_z',              nargs=1, type=int, default=1)
-@corgie_option('--blend_xy',             nargs=1, type=int, default=0)
 @corgie_option('--pad',                  nargs=1, type=int, default=512,
         )
 @corgie_optgroup('')
 @corgie_option('--crop',                 nargs=1, type=int, default=None)
 @corgie_option('--processor_spec',       nargs=1, type=str, multiple=True,
         required=True)
-@corgie_option('--processor_mip',                  nargs=1, type=int, multiple=True,
+@corgie_option('--mip',                  nargs=1, type=int, multiple=True,
         required=True)
 
 @corgie_optgroup('Data Region Specification')
@@ -182,12 +177,8 @@ class ComputeFieldTask(scheduling.Task):
 
 @click.pass_context
 def compute_field(ctx, src_layer_spec, tgt_layer_spec, dst_layer_spec,
-        suffix, processor_spec, pad, crop, chunk_xy, start_coord, processor_mip,
-        end_coord, coord_mip, blend_xy, tgt_z_offset, chunk_z, reference_key):
-    if suffix is None:
-        suffix = ''
-    else:
-        suffix = f"_{suffix}"
+        suffix, processor_spec, pad, crop, chunk_xy, start_coord, mip,
+        end_coord, coord_mip, tgt_z_offset, chunk_z, reference_key):
 
     scheduler = ctx.obj['scheduler']
 
@@ -216,16 +207,15 @@ def compute_field(ctx, src_layer_spec, tgt_layer_spec, dst_layer_spec,
             dst_layer=dst_layer,
             chunk_xy=chunk_xy,
             chunk_z=chunk_z,
-            blend_xy=blend_xy,
             processor_spec=processor_spec,
             pad=pad,
             crop=crop,
             bcube=bcube,
             tgt_z_offset=tgt_z_offset,
             suffix=suffix,
-            processor_mip=processor_mip)
+            mip=mip)
 
     # create scheduler and execute the job
-    scheduler.register_job(compute_field_job, job_name="Compute field {}, tgt z offset {}".format(
+    scheduler.register_job(align_block_job, job_name="Compute field {}, tgt z offset {}".format(
         bcube, tgt_z_offset))
     scheduler.execute_until_completion()

@@ -26,7 +26,7 @@ def shift_by_int(img, x_shift, y_shift, is_res=False):
     return result
 
 
-def res_warp_res(res_a, res_b, is_pix_res=True):
+def res_warp_res(res_a, res_b, is_pix_res=True, permute_field=True):
     if is_pix_res:
         res_b = 2 * res_b / (res_b.shape[-2])
 
@@ -46,7 +46,11 @@ def res_warp_res(res_a, res_b, is_pix_res=True):
     return result
 
 
-def res_warp_img(img, res_in, is_pix_res=True, padding_mode='zeros', mode="bilinear"):
+def res_warp_img(img, res_in, is_pix_res=True,
+        padding_mode='zeros', mode="bilinear",
+        permute_field=True):
+    if permute_field:
+        res_in = res_in.permute(0, 2, 3, 1)
 
     if is_pix_res:
         res = 2 * res_in / (img.shape[-1])

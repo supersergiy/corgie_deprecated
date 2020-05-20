@@ -28,9 +28,6 @@ class NormalizeJob(scheduling.Job):
         self.chunk_xy = chunk_xy
         self.chunk_z = chunk_z
         self.mask_value = mask_value
-        self.dst_layer.declare_write_region(self.bcube, mips=[mip],
-                chunk_xy=self.chunk_xy, chunk_z=self.chunk_z)
-
         super().__init__()
 
     def task_generator(self):
@@ -175,7 +172,7 @@ def normalize(ctx, src_layer_spec, dst_folder, stats_mip,
                     path=os.path.join(dst_folder, "img", f"{l.name}{suffix}"),
                     layer_type=l.get_layer_type(),
                     dtype='float32',
-                    overwrite_info=True
+                    overwrite=True
                     )
 
         result_report += f"Normalized {l} -> {dst_layer}\n"

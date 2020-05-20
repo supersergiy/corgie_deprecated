@@ -22,58 +22,61 @@ class CVDataBackend(DataBackendBase):
 
 
 class CVLayerBase(BaseLayerBackend):
-    def __init__(self, path, backend, reference=None, chunk_z=None, overwrite_info=False, **kwargs):
+    def __init__(self, path, backend, reference=None, force_chunk_xy=None,
+            force_chunk_z=None, overwrite=False, **kwargs):
         super().__init__(**kwargs)
         self.path = path
-        self.cv = MiplessCloudVolume(path)
         self.backend = backend
 
+        new_layer = False
         try:
-            if overwrite_info:
-                raise cv.exceptions.InfoUnavailableError
-
-            info = self.cv.get_info()
-            if self.dtype is not None:
-                if self.dtype != info['data_type']:
-                    raise exceptions.CorgieException(f"Existing info type {info['data_type']} of layer "
-                            f"{str(self)} conflicts with "
-                            f"specified data type {self.dtype}")
-
+            info = MiplessCloudVolume(path).get_info()
         except cv.exceptions.InfoUnavailableError as e:
             if reference is None:
                 raise e
             else:
                 info = copy.deepcopy(reference.get_info())
+                new_layer = True
 
-                info['num_channels'] = self.get_num_channels()
-                if self.dtype is None:
-                    dtype = self.get_default_data_type()
-                else:
-                    dtype = self.dtype
-                info['data_type'] = dtype
-                if not self.supports_voxel_offset():
-                    for scale in info['scales']:
-                        scale['voxel_offset'] = [0, 0, 0]
-                if not self.supports_chunking():
-                    for scale in info['scales']:
-                        scale['chunk_sizes'] = [[1, 1, 1]]
-                if chunk_z is not None:
-                    for scale in info['scales']:
-                        scale['chunk_sizes'][0][-1] = chunk_z
-                self.cv = MiplessCloudVolume(path,
-                        info=info)
+        if new_layer or overwrite:
+            info['num_channels'] = self.get_num_channels()
+            if self.dtype is None:
+                dtype = self.get_default_data_type()
+            else:
+                dtype = self.dtype
+            info['data_type'] = dtype
+            if not self.supports_voxel_offset():
+                for scale in info['scales']:
+                    scale['voxel_offset'] = [0, 0, 0]
+            if not self.supports_chunking():
+                for scale in info['scales']:
+                    scale['chunk_sizes'] = [[1, 1, 1]]
+            if force_chunk_z is not None:
+                for scale in info['scales']:
+                    scale['chunk_sizes'][0][-1] = force_chunk_z
+            if force_chunk_xy is not None:
+                for scale in info['scales']:
+                    scale['chunk_sizes'][0][0] = force_chunk_xy
+                    scale['chunk_sizes'][0][1] = force_chunk_xy
+
+        self.cv = MiplessCloudVolume(path,
+                info=info)
 
         self.dtype = info['data_type']
 
     def __str__(self):
         return "CV {}".format(self.path)
 
-    def get_sublayer(self, name, layer_type, path=None, **kwargs):
+    def get_sublayer(self, name, layer_type=None, path=None, **kwargs):
         if path is None:
             path = os.path.join(self.cv.path, layer_type, name)
 
-        return self.backend.create_layer(path=path, layer_type=layer_type,
-                reference=self, **kwargs)
+        if layer_type is None:
+            layer_type = self.get_layer_type()
+
+
+        return self.backend.create_layer(path=path, reference=self,
+                layer_type=layer_type, **kwargs)
 
     def read_backend(self, bcube, mip):
         x_range = bcube.x_range(mip)
@@ -120,13 +123,6 @@ class CVLayerBase(BaseLayerBackend):
 
     def get_info(self):
         return self.cv.get_info()
-
-    def declare_write_region(self, bcube, mips, chunk_xy=None, chunk_z=None):
-        for m in mips:
-            self.cv.ensure_info_has_mip(m)
-        aligned_bcube = self.get_chunk_aligned_bcube(bcube, max(mips), chunk_xy, chunk_z)
-
-        super().declare_write_region(aligned_bcube, mips)
 
     def get_chunk_aligned_bcube(self, bcube, mip, chunk_xy, chunk_z):
         cv_chunk = self.cv[mip].chunk_size
@@ -190,12 +186,12 @@ class CVLayerBase(BaseLayerBackend):
         return aligned_bcube
 
     def break_bcube_into_chunks(self, bcube, chunk_xy, chunk_z, mip,
-            readonly=False):
+            readonly=False, **kwargs):
         if not readonly:
             bcube = self.get_chunk_aligned_bcube(bcube, mip, chunk_xy, chunk_z)
 
         chunks = super().break_bcube_into_chunks(bcube, chunk_xy, chunk_z,
-                mip)
+                mip, **kwargs)
         return chunks
 
 

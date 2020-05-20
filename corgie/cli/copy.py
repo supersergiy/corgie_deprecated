@@ -22,14 +22,6 @@ class CopyJob(scheduling.Job):
         self.copy_masks = copy_masks
         self.blackout_masks = blackout_masks
 
-        if copy_masks:
-            write_layers = self.dst_stack.get_layers_of_type(["img", "mask"])
-        else:
-            write_layers = self.dst_stack.get_layers_of_type("img")
-        for l in write_layers:
-            l.declare_write_region(self.bcube,
-                    mips=[mip], chunk_xy=chunk_xy, chunk_z=chunk_z)
-
         super().__init__()
 
     def task_generator(self):
@@ -98,8 +90,10 @@ class CopyTask(scheduling.Task):
 @corgie_option('--chunk_xy',       '-c', nargs=1, type=int, default=1024)
 @corgie_option('--chunk_z',              nargs=1, type=int, default=1)
 @corgie_option('--mip',                  nargs=1, type=int, required=True)
-@corgie_option('--blackout_masks/--no_blackout_masks',      default=False)
-@corgie_option('--copy_masks/--no_copy_masks',              default=True)
+@corgie_option('--blackout_masks',  is_flag=True)
+@corgie_option('--copy_masks',      is_flag=True)
+@corgie_option('--force_chunk_xy',  is_flag=True)
+@corgie_option('--force_chunk_z',      is_flag=True)
 
 @corgie_optgroup('Data Region Specification')
 @corgie_option('--start_coord',      nargs=1, type=str, required=True)
@@ -109,7 +103,9 @@ class CopyTask(scheduling.Task):
 
 @click.pass_context
 def copy(ctx, src_layer_spec, dst_folder, copy_masks, blackout_masks,
-         chunk_xy, chunk_z, start_coord, end_coord, coord_mip, mip, suffix):
+         chunk_xy, chunk_z, start_coord, end_coord, coord_mip, mip, suffix,
+         force_chunk_xy, force_chunk_z):
+
     scheduler = ctx.obj['scheduler']
     if suffix is None:
         suffix = ''
@@ -120,9 +116,19 @@ def copy(ctx, src_layer_spec, dst_folder, copy_masks, blackout_masks,
     src_stack = create_stack_from_spec(src_layer_spec,
             name='src', readonly=True)
 
+    if force_chunk_xy:
+        force_chunk_xy = chunk_xy
+    else:
+        force_chunk_xy = None
+
+    if force_chunk_z:
+        force_chunk_z = chunk_z
+    else:
+        force_chunk_z = None
+
     dst_stack = stack.create_stack_from_reference(reference_stack=src_stack,
             folder=dst_folder, name="dst", types=["img", "mask"], readonly=False,
-            chunk_z=chunk_z, suffix=suffix)
+            suffix=suffix, force_chunk_xy=force_chunk_xy, force_chunk_z=force_chunk_z)
 
     bcube = get_bcube_from_coords(start_coord, end_coord, coord_mip)
 
