@@ -131,7 +131,7 @@ def normalize(ctx, src_layer_spec, dst_folder, stats_mip,
 
     dst_stack = stack.create_stack_from_reference(reference_stack=src_stack,
             folder=dst_folder, name="dst", types=["img"], readonly=False,
-            suffix=suffix)
+            suffix=suffix, overwrite=True)
 
     bcube = get_bcube_from_coords(start_coord, end_coord, coord_mip)
 

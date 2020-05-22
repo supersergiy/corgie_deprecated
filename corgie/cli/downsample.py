@@ -118,7 +118,7 @@ def downsample(ctx, src_layer_spec, dst_layer_spec, mip_start,
         dst_layer = create_layer_from_spec(dst_layer_spec,
             caller_name='dst_layer layer',
             readonly=False,
-            reference=src_layer, chunk_z=chunk_z)
+            reference=src_layer, chunk_z=chunk_z, overwrite=True)
     bcube = get_bcube_from_coords(start_coord, end_coord, coord_mip)
     downsample_job = DownsampleJob(src_layer, dst_layer,
                                    mip_start, mip_end,

@@ -17,8 +17,8 @@ from corgie.cli.common import ChunkedJob
 class ComputeFieldJob(scheduling.Job):
     def __init__(self, src_stack, tgt_stack, dst_layer,
             chunk_xy, chunk_z, processor_spec, processor_mip,
-            pad, crop, blend_xy,
-            bcube, tgt_z_offset, suffix=''):
+            pad, crop,
+            bcube, tgt_z_offset, blend_xy=0, suffix=''):
 
         self.src_stack = src_stack
         self.tgt_stack = tgt_stack
@@ -121,7 +121,8 @@ class ComputeFieldTask(scheduling.Task):
         src_bcube = self.bcube.uncrop(self.pad, self.mip)
         tgt_bcube = src_bcube.translate(z=self.tgt_z_offset)
 
-        processor = procspec.parse_proc(spec_str=self.processor_spec, default_output='src_cf_field')
+        processor = procspec.parse_proc(
+                spec_str=self.processor_spec)
 
         src_translation, src_data_dict = self.src_stack.read_data_dict(src_bcube,
                 mip=self.mip, stack_name='src')
@@ -130,11 +131,12 @@ class ComputeFieldTask(scheduling.Task):
 
         processor_input = {**src_data_dict, **tgt_data_dict}
 
-        predicted_field = processor(processor_input)
+        predicted_field = processor(processor_input,
+                                    output_key='src_cf_field')
+
         cropped_field = helpers.crop(predicted_field, self.crop)
         cropped_field[:, 0] += src_translation.x
         cropped_field[:, 1] += src_translation.y
-
         self.dst_layer.write(cropped_field, bcube=self.bcube, mip=self.mip)
 
 
@@ -203,7 +205,7 @@ def compute_field(ctx, src_layer_spec, tgt_layer_spec, dst_layer_spec,
         reference_layer = src_stack.layers[reference_key]
     dst_layer = create_layer_from_spec(dst_layer_spec, allowed_types=['field'],
             default_type='field', readonly=False, caller_name='dst_layer',
-            reference=reference_layer)
+            reference=reference_layer, overwrite=True)
 
     bcube = get_bcube_from_coords(start_coord, end_coord, coord_mip)
 

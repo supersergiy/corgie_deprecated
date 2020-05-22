@@ -45,7 +45,7 @@ class MiplessCloudVolume():
     """Multi-mip access to CloudVolumes using the same path
     """
     def __init__(self, path, allow_info_writes=True, obj=CloudVolume,
-            default_chunk=(512, 512, 1), **kwargs):
+            default_chunk=(512, 512, 1), overwrite=False, **kwargs):
         self.path = path
         self.allow_info_writes = allow_info_writes
         self.cv_params = {}
@@ -63,7 +63,7 @@ class MiplessCloudVolume():
 
         self.obj = obj
         self.cvs = {}
-        if 'info' in self.cv_params:
+        if 'info' in self.cv_params and overwrite:
             self.store_info()
 
     # def exists(self):

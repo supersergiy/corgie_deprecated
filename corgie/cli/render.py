@@ -24,14 +24,6 @@ class RenderJob(scheduling.Job):
         self.blackout_masks = blackout_masks
         self.additional_fields = additional_fields
 
-        if render_masks:
-            write_layers = self.dst_stack.get_layers_of_type(["img", "mask"])
-        else:
-            write_layers = self.dst_stack.get_layers_of_type("img")
-        for l in write_layers:
-            l.declare_write_region(self.bcube,
-                    mips=[mip], chunk_xy=chunk_xy, chunk_z=chunk_z)
-
         super().__init__()
 
     def task_generator(self):
@@ -141,7 +133,8 @@ def render(ctx, src_layer_spec, dst_folder, pad, render_masks, blackout_masks,
             name='src', readonly=True)
 
     dst_stack = stack.create_stack_from_reference(reference_stack=src_stack,
-            folder=dst_folder, name="dst", types=["img", "mask"])
+            folder=dst_folder, name="dst", types=["img", "mask"],
+            overwrite=True)
 
     bcube = get_bcube_from_coords(start_coord, end_coord, coord_mip)
 

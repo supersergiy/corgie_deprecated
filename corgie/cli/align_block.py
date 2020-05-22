@@ -55,8 +55,9 @@ class AlignBlockJob(scheduling.Job):
             yield scheduling.wait_until_done
         src_bcube = start_sec_bcube
 
-        align_field_layer = self.dst_stack.create_sublayer(f'aign_field{self.suffix}',
-                layer_type='field')
+        align_field_layer = self.dst_stack.create_sublayer(f'align_field{self.suffix}',
+                layer_type='field', overwrite=True)
+
         for z in range(z_start + z_step, z_end + z_step, z_step):
             tgt_bcube = src_bcube
             src_bcube = self.bcube.reset_coords(zs=z, ze=z + 1, in_place=False)
@@ -145,7 +146,7 @@ def align_block(ctx, src_layer_spec, tgt_layer_spec, dst_folder, render_pad, ren
 
     dst_stack = stack.create_stack_from_reference(reference_stack=src_stack,
             folder=dst_folder, name="dst", types=["img", "mask"], readonly=False,
-            suffix=suffix)
+            suffix=suffix, overwrite=True)
 
     render_method = helpers.PartialSpecification(
             f=RenderJob,
