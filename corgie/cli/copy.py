@@ -62,7 +62,6 @@ class CopyTask(scheduling.Task):
             mask = helpers.read_mask_list(mask_layers, self.bcube, self.mip)
         else:
             mask = None
-
         if self.copy_masks:
             write_layers = self.dst_stack.get_layers_of_type(["img", "mask"])
         else:
@@ -90,8 +89,8 @@ class CopyTask(scheduling.Task):
 @corgie_option('--chunk_xy',       '-c', nargs=1, type=int, default=1024)
 @corgie_option('--chunk_z',              nargs=1, type=int, default=1)
 @corgie_option('--mip',                  nargs=1, type=int, required=True)
-@corgie_option('--blackout_masks',  is_flag=True)
-@corgie_option('--copy_masks',      is_flag=True)
+@corgie_option('--blackout_masks/--no_blackout_masks',  default=False)
+@corgie_option('--copy_masks/--no_copy_masks',          default=True)
 @corgie_option('--force_chunk_xy',  is_flag=True)
 @corgie_option('--force_chunk_z',      is_flag=True)
 

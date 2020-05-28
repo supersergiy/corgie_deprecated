@@ -1,4 +1,5 @@
 import torch
+import numpy as np
 
 from corgie import constants, exceptions
 from corgie import helpers
@@ -37,6 +38,8 @@ class BaseLayerType:
     def read(self, dtype=None, **kwargs):
         data_np = self.read_backend(**kwargs)
         # TODO: if np type is unit32, convert it to int64
+        if data_np.dtype == np.uint32:
+            data_np = data_np.astype(np.int64)
         data_tens = torch.as_tensor(data_np, device=self.device)
         data_tens = helpers.cast_tensor_type(data_tens, dtype)
         return data_tens
