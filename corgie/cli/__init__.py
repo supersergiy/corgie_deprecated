@@ -16,6 +16,8 @@ from corgie.cli.render import render
 COMMAND_LIST.append(render)
 from corgie.cli.copy import copy
 COMMAND_LIST.append(copy)
+from corgie.cli.compute_pairwise_fields import compute_pairwise_fields
+COMMAND_LIST.append(compute_pairwise_fields)
 
 # To add new commands, create a file in this folder implementing a command,
 # import the command here and add it to the list:
