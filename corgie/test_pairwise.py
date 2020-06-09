@@ -2,7 +2,7 @@ import pytest
 import torch
 from cloudvolume import CloudVolume
 from cloudvolume.lib import Vec
-from pairwise import PairwiseStack
+from pairwise import PairwiseTensors, PairwiseFields
 
 import shutil
 import os
@@ -15,7 +15,8 @@ def delete_layer(path):
     if os.path.exists(path):
         shutil.rmtree(path) 
 
-def test_pairwisestack():
+def test_pairwisetensors():
+    # TODO: test with CUDA
     mip=0
     sz = Vec(*[4, 4, 1])
     info = CloudVolume.create_new_info(
@@ -38,7 +39,7 @@ def test_pairwisestack():
                            zs=z, ze=z+1,
                            mip=mip)
 
-    F = PairwiseStack(name='test')
+    F = PairwiseFields(name='test')
     backend = CVDataBackend(device='cpu')
     for o in [1,-2]:
         spec = {'name': o,
@@ -55,7 +56,7 @@ def test_pairwisestack():
     g = torch.zeros((1,2,4,4))
     g[:,0,:,:] = 4
     g[:,1,:,:] = 0
-    F.layers[1].write(g, bcube=bcube, mip=mip) 
+    F.write(data=g, tgt_to_src=(1,0), bcube=bcube, mip=mip) 
     assert(torch.equal(F.read((1,0), bcube=bcube, mip=mip), g))
 
     # F[(-1,1)]
@@ -63,7 +64,7 @@ def test_pairwisestack():
     g = torch.zeros((1,2,4,4))
     g[:,0,:,:] = 0
     g[:,1,:,:] = 4
-    F.layers[-2].write(g, bcube=bcube, mip=mip) 
+    F.write(data=g, tgt_to_src=(-1,1), bcube=bcube, mip=mip) 
     assert(torch.equal(F.read((-1,1), bcube=bcube, mip=mip), g))
 
     o = torch.zeros((1,2,4,4))
