@@ -10,9 +10,9 @@ from corgie.log import configure_logger
 
 @click.command()
 @click.option('--lease_seconds', '-l', nargs=1, type=int, required=True)
-@click.option('--queue_name',    '-q', nargs=1, type=str, required=True)
+@scheduling.scheduler_click_options
 @click.option('-v', '--verbose', count=True, help='Turn on debug logging')
-def worker(lease_seconds, queue_name, verbose):
+def worker(lease_seconds, verbose, **kwargs):
     configure_logger(verbose)
-    executor = scheduling.Executor(queue_name=queue_name)
+    executor = scheduling.parse_executor_from_kwargs(kwargs)
     executor.execute(lease_seconds=lease_seconds)

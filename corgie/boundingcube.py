@@ -145,7 +145,7 @@ class BoundingCube:
         """
         scale_factor = 2**mip
         m0_crop_xy = crop_xy * scale_factor
-        result = self.copy()
+        result = self.clone()
         result.reset_coords(xs=self.m0_x[0] - m0_crop_xy,
                         xe=self.m0_x[1] + m0_crop_xy,
                         ys=self.m0_y[0] - m0_crop_xy,
@@ -188,7 +188,7 @@ class BoundingCube:
     def __repr__(self):
         return self.__str__(mip=0)
 
-    def translate(self, x=0, y=0, z=0, mip=0):
+    def translate_v1(self, x=0, y=0, z=0, mip=0):
         assert isinstance(x, int)
         assert isinstance(y, int)
         assert isinstance(z, int)
@@ -201,10 +201,26 @@ class BoundingCube:
                            ye=self.m0_y[1] + y,
                            zs=self.z[0] + z,
                            ze=self.z[1] + z,
-                           mip=0)
+                           mip=mip)
 
-    def copy(self):
+    def clone(self):
         return copy.deepcopy(self)
+
+    def translate(self, z_offset=0, x_offset=0, y_offset=0,
+            mip=0):
+        x_range = self.x_range(mip=mip)
+        y_range = self.y_range(mip=mip)
+        z_range = self.z_range()
+        return BoundingCube(
+                xs=x_range[0] + x_offset,
+                xe=x_range[1] + x_offset,
+                ys=y_range[0] + y_offset,
+                ye=y_range[1] + y_offset,
+                zs=z_range[0] + z_offset,
+                ze=z_range[1] + z_offset,
+                mip=mip
+            )
+
 
     def to_slices(self, zs, ze=None, mip=0):
         x_range = self.x_range(mip=mip)

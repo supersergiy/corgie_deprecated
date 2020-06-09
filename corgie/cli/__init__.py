@@ -16,6 +16,8 @@ from corgie.cli.render import render
 COMMAND_LIST.append(render)
 from corgie.cli.copy import copy
 COMMAND_LIST.append(copy)
+from corgie.cli.apply_processor import apply_processor
+COMMAND_LIST.append(apply_processor)
 
 # To add new commands, create a file in this folder implementing a command,
 # import the command here and add it to the list:

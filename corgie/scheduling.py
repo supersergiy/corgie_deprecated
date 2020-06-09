@@ -3,8 +3,9 @@ import mazepa
 wait_until_done = mazepa.Barrier
 Task = mazepa.Task
 Executor = mazepa.Executor
-click_scheduler_options = mazepa.click_options
-parse_scheduler_from_kwargs = mazepa.parse_schedulre_from_kwargs
+scheduler_click_options = mazepa.click_options
+parse_scheduler_from_kwargs = mazepa.parse_scheduler_from_kwargs
+parse_executor_from_kwargs = mazepa.parse_executor_from_kwargs
 
 class Job(mazepa.Job):
     def __init__(self, *kargs, **kwargs):

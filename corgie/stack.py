@@ -90,7 +90,7 @@ class Stack(StackBase):
         self.add_layer(l)
         return l
 
-    def read_data_dict(self, bcube, mip, translation_adjuster=None, stack_name=None):
+    def read_data_dict(self, bcube, mip, translation_adjuster=None, stack_name=None, add_prefix=True):
         data_dict = {}
         field_layers = self.get_layers_of_type("field")
         agg_field = None
@@ -98,7 +98,7 @@ class Stack(StackBase):
         if stack_name is None:
             stack_name == self.name
 
-        if stack_name is None:
+        if stack_name is None or not add_prefix:
             name_prefix = ""
         else:
             name_prefix = f"{stack_name}_"
@@ -121,7 +121,9 @@ class Stack(StackBase):
         else:
             translation = helpers.Translation(0, 0)
         final_bcube = copy.deepcopy(bcube)
-        final_bcube = final_bcube.translate(x=translation.x, y=translation.y)
+        final_bcube = final_bcube.translate(
+                x_offset=translation.x,
+                y_offset=translation.y)
 
         for l in self.get_layers_of_type(["mask", "img"]):
             global_name = f"{name_prefix}{l.name}"

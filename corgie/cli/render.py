@@ -1,4 +1,5 @@
 import click
+import six
 
 from corgie import scheduling, residuals, helpers, stack
 
@@ -12,7 +13,8 @@ from corgie.argparsers import LAYER_HELP_STR, \
 
 class RenderJob(scheduling.Job):
     def __init__(self, src_stack, dst_stack, mip, pad, render_masks,
-                 blackout_masks, bcube, chunk_xy, chunk_z, additional_fields=[]):
+                 blackout_masks, seethrough, bcube, chunk_xy, chunk_z,
+                 additional_fields=[], seethrough_offset=-1):
         self.src_stack = src_stack
         self.dst_stack = dst_stack
         self.mip = mip
@@ -23,6 +25,8 @@ class RenderJob(scheduling.Job):
         self.render_masks = render_masks
         self.blackout_masks = blackout_masks
         self.additional_fields = additional_fields
+        self.seethrough = seethrough
+        self.seethrough_offset = seethrough_offset
 
         super().__init__()
 
@@ -40,7 +44,10 @@ class RenderJob(scheduling.Job):
                             mip=self.mip,
                             pad=self.pad,
                             bcube=input_chunk,
-                            additional_fields=self.additional_fields) for input_chunk in chunks]
+                            additional_fields=self.additional_fields,
+                            seethrough=self.seethrough,
+                            seethrough_offset=self.seethrough_offset) \
+                                    for input_chunk in chunks]
         corgie_logger.info(f"Yielding render tasks for bcube: {self.bcube}, MIP: {self.mip}")
 
         yield tasks
@@ -48,7 +55,8 @@ class RenderJob(scheduling.Job):
 
 class RenderTask(scheduling.Task):
     def __init__(self, src_stack, dst_stack, additional_fields, render_masks,
-            blackout_masks, mip, pad, bcube):
+            blackout_masks, seethrough, seethrough_offset, mip,
+            pad, bcube):
         super().__init__(self)
         self.src_stack = src_stack
         self.dst_stack = dst_stack
@@ -58,40 +66,72 @@ class RenderTask(scheduling.Task):
         self.bcube = bcube
         self.pad = pad
         self.additional_fields = additional_fields
+        self.seethrough = seethrough
+        self.seethrough_offset = seethrough_offset
+        self.blackout_value = -2.0
 
     def execute(self):
         padded_bcube = self.bcube.uncrop(self.pad, self.mip)
+        seethrough_bcube = self.bcube.translate(
+                        z_offset=self.seethrough_offset)
 
         for f in self.additional_fields:
             self.src_stack.add_layer(f)
 
         src_translation, src_data_dict = self.src_stack.read_data_dict(padded_bcube,
-                mip=self.mip, stack_name='src')
-        agg_field = src_data_dict[f"src_agg_field"]
+                mip=self.mip, add_prefix=False)
+        agg_field = src_data_dict[f"agg_field"]
 
+        agg_mask = None
         if self.blackout_masks:
-            mask_layers = self.dst_stack.get_layers_of_type(["img", "mask"])
-            mask = helpers.read_mask_list(mask_layers, self.bcube, self.mip)
-        else:
-            mask = None
+            mask_layers = self.dst_stack.get_layers_of_type(["mask"])
+            mask_layer_names = [l.name for l in mask_layers]
+            for n, d in six.iteritems(src_data_dict):
+                if n in mask_layer_names:
+                    if agg_mask is None:
+                        agg_mask = d
+                    else:
+                        agg_mask = ((agg_mask + d) > 0).byte()
 
         if self.render_masks:
             write_layers = self.dst_stack.get_layers_of_type(["img", "mask"])
         else:
             write_layers = self.dst_stack.get_layers_of_type("img")
 
-        for l in write_layers:
-            src = src_data_dict[f"src_{l.name}"]
 
+        for l in write_layers:
+            src = src_data_dict[f"{l.name}"]
             if agg_field is not None:
                 warped_src = residuals.res_warp_img(src.float(), agg_field)
+                if agg_mask is not None:
+                    warped_mask = residuals.res_warp_img(
+                        agg_mask.float(),
+                        agg_field)
+                    warped_mask = (warped_mask > 0.4).byte()
+                else:
+                    warped_mask = None
             else:
                 warped_src = src
+                warped_mask = agg_mask
 
-            if mask is not None:
-                warped_src[mask] = 0.0
+            if warped_mask is not None:
+                warped_src[warped_mask] = self.blackout_value
 
             cropped_out = helpers.crop(warped_src, self.pad)
+
+            if l.get_layer_type() == "img" and self.seethrough:
+                seethrough_data = l.read(
+                        bcube=seethrough_bcube,
+                        mip=self.mip)
+
+                seethrough_mask = (cropped_out == 0) + \
+                        (cropped_out == self.blackout_value)
+
+                cropped_out[seethrough_mask] = \
+                        seethrough_data[seethrough_mask]
+                seenthru = (cropped_out[seethrough_mask] != 0).sum()
+                corgie_logger.debug(f"Seenthrough {seenthru} pixels")
+
             l.write(cropped_out, bcube=self.bcube, mip=self.mip)
 
         for f in self.additional_fields:
@@ -114,18 +154,19 @@ class RenderTask(scheduling.Task):
 @corgie_option('--chunk_z',              nargs=1, type=int, default=1)
 @corgie_option('--pad',                  nargs=1, type=int, default=512)
 @corgie_option('--mip',                  nargs=1, type=int, required=True)
-@corgie_option('--render_masks/--no_render_masks',          default=True)
-@corgie_option('--blackout_masks/--no_blackout_masks',      default=False)
+@corgie_option('--render_masks/--no_render_masks',          default=False)
+@corgie_option('--blackout_masks/--no_blackout_masks',      default=True)
+@corgie_option('--seethrough/--no_seethrough',          default=True)
 
 @corgie_optgroup('Data Region Specification')
 @corgie_option('--start_coord',      nargs=1, type=str, required=True)
 @corgie_option('--end_coord',        nargs=1, type=str, required=True)
 @corgie_option('--coord_mip',        nargs=1, type=int, default=0)
-@corgie_option('--tgt_z_offset',     nargs=1, type=str, default=1)
 
 @click.pass_context
 def render(ctx, src_layer_spec, dst_folder, pad, render_masks, blackout_masks,
-         chunk_xy, chunk_z, start_coord, end_coord, coord_mip, suffix):
+         seethrough, chunk_xy, chunk_z, start_coord, end_coord,
+         coord_mip, suffix):
     scheduler = ctx.obj['scheduler']
 
     corgie_logger.debug("Setting up layers...")
@@ -146,7 +187,8 @@ def render(ctx, src_layer_spec, dst_folder, pad, render_masks, blackout_masks,
                            chunk_xy=chunk_xy,
                            chunk_z=chunk_z,
                            render_masks=render_masks,
-                           blackout_masks=blackout_masks)
+                           blackout_masks=blackout_masks,
+                           seethrough=seethrough)
 
     # create scheduler and execute the job
     scheduler.register_job(render_job, job_name="Render {}".format(bcube))

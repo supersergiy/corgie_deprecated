@@ -4,6 +4,7 @@ monkey.patch_all()
 import json
 import click
 
+from corgie import scheduling
 from corgie.log import configure_logger
 from corgie.log import logger as corgie_logger
 
@@ -11,7 +12,6 @@ from corgie.argparsers import corgie_option, corgie_optgroup
 from corgie.data_backends import get_data_backends, str_to_backend, \
         DEFAULT_DATA_BACKEND, DataBackendBase
 from corgie.cli.downsample import downsample
-from corgie.scheduling import create_scheduler
 
 from corgie.cli import get_command_list
 
@@ -36,7 +36,7 @@ class GroupWithCommandOptions(click.Group):
 
             # separate the group parameters
             ctx.obj = dict(_params=dict())
-            for param in self.params:
+            for param in list(self.params):
                 name = param.name
                 ctx.obj['_params'][name] = ctx.params[name]
                 del ctx.params[name]
@@ -54,7 +54,7 @@ class GroupWithCommandOptions(click.Group):
 
 
 @click.group(cls=GroupWithCommandOptions)
-@click.option('--queue_name', '-q', nargs=1, type=str, required=None)
+@scheduling.scheduler_click_options
 @click.option('--device',     '-d', 'device', nargs=1,
                 type=str,
                 default='cpu',
@@ -62,7 +62,7 @@ class GroupWithCommandOptions(click.Group):
                 show_default=True)
 @click.option('-v', '--verbose', count=True, help='Turn on debug logging')
 @click.pass_context
-def cli(ctx, queue_name, device, verbose):
+def cli(ctx, device, verbose, **kwargs):
     # This little hack let's us make group options look like
     # child command options, and at the same time only execute
     # the setup once
@@ -71,7 +71,9 @@ def cli(ctx, queue_name, device, verbose):
         ctx.obj = {}
         DataBackendBase.default_device = device
         corgie_logger.debug("Creting scheduler...")
-        ctx.obj['scheduler'] = create_scheduler(queue_name=queue_name)
+        ctx.obj['scheduler'] = scheduling.parse_scheduler_from_kwargs(
+                kwargs)
+
         corgie_logger.debug("Scheduler created.")
 
 for c in get_command_list():

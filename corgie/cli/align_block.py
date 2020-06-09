@@ -43,13 +43,17 @@ class AlignBlockJob(scheduling.Job):
             z_start = self.bcube.z_range()[1]
             z_end = self.bcube.z_range()[0]
             z_step = -1
+        seethrough_offset = -z_step
 
-        start_sec_bcube = self.bcube.reset_coords(zs=z_start, ze=z_start + 1, in_place=False)
+        start_sec_bcube = self.bcube.reset_coords(
+                zs=z_start, ze=z_start + 1, in_place=False)
         if self.copy_start:
             render_job = self.render_method(
                     src_stack=self.src_stack,
                     dst_stack=self.dst_stack,
-                    bcube=start_sec_bcube)
+                    bcube=start_sec_bcube,
+                    seethrough=False,
+                    blackout_masks=False)
 
             yield from render_job.task_generator
             yield scheduling.wait_until_done
@@ -75,7 +79,10 @@ class AlignBlockJob(scheduling.Job):
                     src_stack=self.src_stack,
                     dst_stack=self.dst_stack,
                     bcube=src_bcube,
-                    additional_fields=[align_field_layer]
+                    additional_fields=[align_field_layer],
+                    seethrough=True,
+                    blackout_masks=True,
+                    seethrough_offset=seethrough_offset
                     )
 
             yield from render_job.task_generator
@@ -153,8 +160,7 @@ def align_block(ctx, src_layer_spec, tgt_layer_spec, dst_folder, render_pad, ren
             pad=render_pad,
             chunk_xy=render_chunk_xy,
             chunk_z=1,
-            blackout_masks=False,
-            render_masks=True,
+            render_masks=False,
             mip=min(processor_mip)
             )
 
