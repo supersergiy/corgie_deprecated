@@ -2,14 +2,14 @@ import pytest
 import torch
 from cloudvolume import CloudVolume
 from cloudvolume.lib import Vec
-from pairwise import PairwiseTensors, PairwiseFields
+from corgie.pairwise import PairwiseTensors, PairwiseFields
 
 import shutil
 import os
 
 from corgie.boundingcube import BoundingCube
 from corgie.mipless_cloudvolume import MiplessCloudVolume
-from corgie.data_backends import str_to_backend, CVDataBackend
+from corgie.data_backends import CVDataBackend
 
 def delete_layer(path):
     if os.path.exists(path):
@@ -47,7 +47,7 @@ def test_pairwisetensors():
                 'readonly': False,
                 'path': 'file:///tmp/cloudvolume/empty_volume/{}'.format(o)}
         layer = backend.create_layer(**spec, reference=ref)
-        F.addlayer(layer)
+        F.add_layer(layer)
     for o in [1,-2]:
         assert(o in F.layers)
 

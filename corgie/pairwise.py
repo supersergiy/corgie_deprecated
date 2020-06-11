@@ -1,6 +1,7 @@
 import torchfields
 import numpy as np
-from stack import StackBase
+from corgie.stack import StackBase
+from corgie.argparsers import create_layer_from_spec
 
 class PairwiseTensors(StackBase):
     """Manage set of layers that contain objects specified by pair of neighbors
@@ -17,16 +18,37 @@ class PairwiseTensors(StackBase):
         self.dtype=dtype
         super().__init__(**kwargs)
 
-    def addlayer(self, layer):
+    def add_layer(self, layer):
         """Only allow layers of dtype with ints as names to represent offsets
         """
         assert(isinstance(layer.name, int))
         assert(layer.get_layer_type() == self.dtype)
         super().add_layer(layer)
+
+    def add_layers(self, layers):
+        for l in layers:
+            self.add_layer(l)
+
+    def add_layers_from_specs(self, specs):
+        """Create layers and add to object
+
+        Args:
+            specs: list of strings specifying layers
+        """
+        layers = [create_layer_from_spec(s) for s in specs]
+        self.add_layers(layers)
     
     @property
     def offsets(self):
         return list(self.layers.keys())
+
+    def get_offset(self, tgt, src):
+        """To standardize
+        """
+        return tgt-src
+    
+    def adjust_bcube(self, bcube, z):
+        return bcube.reset_coords(zs=z, ze=z+1, in_place=False)
 
     def write(self, data, tgt_to_src, bcube, mip):
         """Save pairwise object at layers[OFFSET][:,:,z]
@@ -34,7 +56,7 @@ class PairwiseTensors(StackBase):
         Args:
             data: tensor to be written
             tgt_to_src: 2-element iterable TGT & SRC
-            bcube: BoundingCube
+            bcube: BoundingCube, z will be ignored and set to SRC
             mip: int for MIP level 
         """
         if len(tgt_to_src) != 2:
@@ -42,16 +64,17 @@ class PairwiseTensors(StackBase):
                              'Pairwise objects are only defined between '
                              'a pair of sections.'.format(len(tgt_to_src)))
         tgt, src = tgt_to_src
-        offset = tgt - src
+        offset = self.get_offset(tgt, src)
         layer = self.layers[offset]
-        layer.write(data, bcube=bcube, mip=mip) 
+        abcube = self.adjust_bcube(bcube, src)
+        layer.write(data, bcube=abcube, mip=mip) 
 
     def read(self, tgt_to_src, bcube, mip):
         """Read pairwise object at layers[OFFSET][:,:,z]
 
         Args:
             tgt_to_src: 2-element iterable TGT & SRC
-            bcube: BoundingCube
+            bcube: BoundingCube, z will be ignored and set to SRC
             mip: int for MIP level 
 
         Returns:
@@ -62,9 +85,10 @@ class PairwiseTensors(StackBase):
                              'Pairwise objects are only defined between '
                              'a pair of sections.'.format(len(tgt_to_src)))
         tgt, src = tgt_to_src
-        offset = tgt - src
+        offset = self.get_offset(tgt, src)
         layer = self.layers[offset]
-        return layer.read(bcube=bcube, mip=mip) 
+        abcube = self.adjust_bcube(bcube, src)
+        return layer.read(bcube=abcube, mip=mip) 
 
 class PairwiseFields(PairwiseTensors):
     """Manage set of layers that contain fields between neighbors
@@ -124,26 +148,27 @@ class PairwiseFields(PairwiseTensors):
             raise ValueError('len(tgt_to_src) is {} != 2. '
                      'Pairwise objects are only defined between '
                      'a pair of sections.'.format(len(tgt_to_src)))
-        offsets = np.array([t-s for t,s in zip(tgt_to_src[:-1], tgt_to_src[1:])])
+        tgt_src_pairs = zip(tgt_to_src[:-1], tgt_to_src[1:])
+        offsets = np.array([self.get_offset(t, s) for t, s in tgt_src_pairs])
         unavailable = any([o not in self.layers for o in offsets])
         if unavailable:
             raise ValueError('Requested offsets {} are '
                              'unavailable'.format(offsets[unavailable]))
         # tgt_to_src[0] (the ultimate target) is only needed to compute initial offset
-        z = tgt_to_src[1]
+        src = tgt_to_src[1]
         offset = offsets[0]
         layer = self.layers[offset]
-        obcube = bcube.reset_coords(zs=z, ze=z+1, in_place=False)
-        agg_field = layer.read(bcube=obcube, mip=mip).field_()
-        for z, offset in zip(tgt_to_src[2:], offsets[1:]):
+        abcube = self.adjust_bcube(bcube, src)
+        agg_field = layer.read(bcube=abcube, mip=mip).field_()
+        for src, offset in zip(tgt_to_src[2:], offsets[1:]):
             trans = agg_field.mean_finite_vector(keepdim=True)
             trans = (trans // (2**mip)) * 2**mip
             layer = self.layers[offset]
-            obcube = bcube.reset_coords(zs=z, ze=z+1, in_place=False)
-            obcube = obcube.translate(x=int(trans[0,0,0,0]), 
+            abcube = self.adjust_bcube(abcube, src)
+            abcube = abcube.translate(x=int(trans[0,0,0,0]), 
                                       y=int(trans[0,1,0,0]))
             agg_field -= trans
-            this_field = layer.read(bcube=obcube, mip=mip).field_()
+            this_field = layer.read(bcube=abcube, mip=mip).field_()
             agg_field = agg_field(this_field)
             agg_field += trans
         return agg_field
