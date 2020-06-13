@@ -12,23 +12,24 @@ from corgie.argparsers import LAYER_HELP_STR, \
                               create_stack_from_spec
 from corgie.cli.compute_field import ComputeFieldJob
 from corgie.cli.render import RenderJob
+from corgie.pairwise import PairwiseFields
 
 class ComputePairwiseFieldJob(scheduling.Job):
     def __init__(self, 
                  src_stack, 
                  tgt_stack, 
-                 dst_stack, 
+                 pairwise_dst, 
                  cf_method, 
                  bcube, 
-                 radius,
+                 offsets,
                  suffix=None,
                  render_method=None):
         self.src_stack = src_stack
         self.tgt_stack = tgt_stack
-        self.dst_stack = dst_stack
+        self.pairwise_dst = pairwise_dst
         self.cf_method = cf_method
         self.bcube = bcube
-        self.radius = radius
+        self.offsets = offsets
         self.suffix = suffix
         self.render_method = render_method
         super().__init__()
@@ -36,25 +37,14 @@ class ComputePairwiseFieldJob(scheduling.Job):
     def task_generator(self):
         #TODO: adjust radius per z section
         #TODO: render out image for debug with flag
-        offset_range = [i for i in range(-self.radius, self.radius+1) if i != 0]
-        fields = {}
-        imgs = {}
-        for o in offset_range:
-            fields[o] = self.dst_stack.create_sublayer(f'field{self.suffix}_{o}',
-                                                       layer_type='field', 
-                                                       overwrite=True)
-            # if self.render_method is not None:
-            #     imgs[o] = self.dst_stack.create_sublayer(f'img{self.suffix}_{o}',
-            #                                              layer_type='img', 
-            #                                              overwrite=True)
         z_start = self.bcube.z_range()[0]
         z_end = self.bcube.z_range()[1]
         for z in range(z_start, z_end+1):
-            for o in offset_range:
+            for o in self.offsets:
                 bcube = self.bcube.reset_coords(zs=z, 
                                                 ze=z+1, 
                                                 in_place=False)
-                field = fields[o]
+                field = self.pairwise_dst.layers[o]
                 compute_field_job = self.cf_method(src_stack=self.src_stack,
                                                    tgt_stack=self.tgt_stack,
                                                    bcube=bcube,
@@ -88,15 +78,9 @@ class ComputePairwiseFieldJob(scheduling.Job):
                help='Source layer spec. ' \
                     'Use multiple times to include ' \
                     'all masks, fields, images. ' + LAYER_HELP_STR)
-@corgie_option('--dst_folder',  
-               nargs=1, 
-               type=str, 
-               required=True,
-               help="Folder where aligned stack will go")
-@corgie_option('--suffix',
-                nargs=1, 
-                type=str,  
-                default='aligned')
+@corgie_option('--estimated_fields_dir',  '-ef', nargs=1,
+        type=str, required=True, 
+        help='Estimated pairwise fields root directory.')
 
 @corgie_optgroup('Compute Field Method Specification')
 @corgie_option('--processor_spec',      
@@ -159,7 +143,7 @@ class ComputePairwiseFieldJob(scheduling.Job):
 @click.pass_context
 def compute_pairwise_fields(ctx, 
                             src_layer_spec,
-                            dst_folder,
+                            estimated_fields_dir,
                             processor_spec,
                             pad,
                             crop,
@@ -169,7 +153,6 @@ def compute_pairwise_fields(ctx,
                             end_coord,
                             coord_mip,
                             radius,
-                            suffix,
                             render_img,
                             render_pad,
                             render_chunk_xy,
@@ -177,20 +160,20 @@ def compute_pairwise_fields(ctx,
     """Compute fields for all section pairs within local neighborhood.
     """
     scheduler = ctx.obj['scheduler']
-    suffix = f"_{suffix}"
     if crop is None:
         crop = pad
     corgie_logger.debug('Setting up layers...')
     src_stack = create_stack_from_spec(src_layer_spec,
                                        name='src', 
                                        readonly=True)
-    dst_stack = stack.create_stack_from_reference(reference_stack=src_stack,
-                                                  folder=dst_folder, 
-                                                  name='dst', 
-                                                  types=['field', 'img'], 
-                                                  readonly=False,
-                                                  suffix=suffix, 
-                                                  overwrite=True)
+    offsets = [i for i in range(-radius, radius+1) if i != 0]
+    estimated_fields = PairwiseFields(name='estimated_fields',
+                                      folder=estimated_fields_dir)
+    estimated_fields.add_offsets(offsets, 
+                                 readonly=False, 
+                                 reference=src_stack.reference_layer,
+                                 overwrite=True)
+
     cf_method = helpers.PartialSpecification(
             f=ComputeFieldJob,
             pad=pad,
@@ -215,11 +198,11 @@ def compute_pairwise_fields(ctx,
 
     job = ComputePairwiseFieldJob(src_stack=src_stack,
                                     tgt_stack=src_stack,
-                                    dst_stack=dst_stack,
+                                    pairwise_dst=estimated_fields,
                                     cf_method=cf_method,
                                     bcube=bcube,
-                                    radius=radius,
-                                    suffix=suffix,
+                                    offsets=offsets,
+                                    suffix='',
                                     render_method=render_method)
 
     # create scheduler and execute the job
