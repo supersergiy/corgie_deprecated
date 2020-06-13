@@ -49,36 +49,17 @@ def test_pairwise_vote_task():
 
     backend = CVDataBackend(device='cpu')
     offsets = [1,2,3]
-    F = PairwiseFields(name='estimated_fields')
-    for o in offsets:
-        spec = {'name': o,
-                'layer_type': 'field',
-                'readonly': False,
-                'path': 'file:///tmp/cloudvolume/estimated_fields/{}'.format(o)}
-        layer = backend.create_layer(**spec, reference=field_ref)
-        F.add_layer(layer)
+    F  = PairwiseFields(name='estimated_fields',
+                        folder='file:///tmp/cloudvolume/estimated_fields')
+    F.add_offsets(offsets, readonly=False, reference=field_ref)
     for o in offsets: 
         assert(o in F.layers)
-
-    CF = PairwiseFields(name='corrected_fields')
-    for o in offsets:
-        spec = {'name': o,
-                'layer_type': 'field',
-                'readonly': False,
-                'path': 'file:///tmp/cloudvolume/corrected_fields/{}'.format(o)}
-        layer = backend.create_layer(**spec, reference=field_ref)
-        CF.add_layer(layer)
-
-    CW = PairwiseTensors(name='corrected_weights', dtype='img')
-    for o in offsets:
-        spec = {'name': o,
-                'layer_type': 'img',
-                'readonly': False,
-                'dtype': 'float32',
-                'path': 'file:///tmp/cloudvolume/corrected_weights/{}'.format(o)}
-        layer = backend.create_layer(**spec, reference=weight_ref)
-        CW.add_layer(layer)
-
+    CF = PairwiseFields(name='corrected_fields',
+                        folder='file:///tmp/cloudvolume/corrected_fields')
+    CF.add_offsets(offsets, readonly=False, reference=F)
+    CW = PairwiseTensors(name='corrected_weights',
+                        folder='file:///tmp/cloudvolume/corrected_weights')
+    CW.add_offsets(offsets, dtype='float32', readonly=False, reference=weight_ref)
 
     # Want vector voting to be on three vectors that are each rotated by 2*\pi / 3
     # Translate so that average is (0, 1)
@@ -129,11 +110,11 @@ def test_pairwise_vote_task():
     cx = torch.zeros((1,2,4,4)) 
     cx[:,0,:,:] = 0
     cx[:,1,:,:] = 2/3
-    x = CF.read((3,0), bcube=bcube, mip=mip)
-    assert(torch.allclose(x, cx, atol=1e-3))
+    px = CF.read((3,0), bcube=bcube, mip=mip)
+    assert(torch.allclose(px, cx, atol=1e-3))
     cw = torch.ones((1, 1, 4, 4))*2
-    w = CW.read((3,0), bcube=bcube, mip=mip)
-    assert(torch.allclose(w, cw))
+    pw = CW.read((3,0), bcube=bcube, mip=mip)
+    assert(torch.allclose(pw, cw))
 
     delete_layer('/tmp/cloudvolume/empty_fields')
     delete_layer('/tmp/cloudvolume/empty_weights')

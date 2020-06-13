@@ -1,9 +1,11 @@
+import os
+import json
 import torchfields
 import numpy as np
-from corgie.stack import StackBase
+from corgie.stack import Stack
 from corgie.argparsers import create_layer_from_spec
 
-class PairwiseTensors(StackBase):
+class PairwiseTensors(Stack):
     """Manage set of layers that contain objects specified by pair of neighbors
     
     Object examples include pairwise fields and images related to pairwise fields, 
@@ -14,30 +16,54 @@ class PairwiseTensors(StackBase):
             f_{z+offset \leftarrow z} is stored in OFFSET[Z]
         layers in PairwiseTensor must all be of the same type
     """
-    def __init__(self, dtype='img', **kwargs):
-        self.dtype=dtype
+    def __init__(self, layer_type='img', **kwargs):
+        self.layer_type = layer_type
         super().__init__(**kwargs)
 
-    def add_layer(self, layer):
-        """Only allow layers of dtype with ints as names to represent offsets
+    def get_layer_spec(self, offset, suffix='', **kwargs):
+        """Return string for layer spec given OFFSET
+
+        We do this to be backend-agnostic
         """
-        assert(isinstance(layer.name, int))
-        assert(layer.get_layer_type() == self.dtype)
-        super().add_layer(layer)
+        # path = os.path.join(self.folder, f"{offset}{suffix}")
+        path = os.path.join(self.folder, f'field{suffix}_{offset}')
+        spec = {'path': path,
+                'name': offset,
+                'type': self.layer_type,
+                'args': kwargs}
+        return json.dumps(spec)
 
-    def add_layers(self, layers):
-        for l in layers:
-            self.add_layer(l)
-
-    def add_layers_from_specs(self, specs):
-        """Create layers and add to object
+    def add_offset(self, offset, suffix='', readonly=True, reference=None, **kwargs):
+        """Create layer for field representing OFFSET
 
         Args:
-            specs: list of strings specifying layers
+            offset: int for section offset
+            suffix: str for path suffix
+            readonly: bool indicating whether to write info
+            reference: (optional) MiplessCloudVolume to copy info file
         """
-        layers = [create_layer_from_spec(s) for s in specs]
-        self.add_layers(layers)
-    
+        spec = self.get_layer_spec(offset=offset, suffix=suffix, **kwargs)
+        layer = create_layer_from_spec(spec, reference=reference)
+        layer.readonly = readonly
+        self.add_layer(layer)
+
+    def add_offsets(self, offsets, suffix='', readonly=True, reference=None, **kwargs):
+        """Create multiple offsets. See self.add_offset.
+        """
+        for offset in offsets:
+            self.add_offset(offset=offset, 
+                            suffix=suffix, 
+                            readonly=readonly, 
+                            reference=reference, 
+                            **kwargs)
+
+    def get_info(self):
+        """Return info file from reference layer
+        """
+        if self.reference_layer:
+            return self.reference_layer.get_info()
+        return None
+
     @property
     def offsets(self):
         return list(self.layers.keys())
@@ -130,7 +156,7 @@ class PairwiseFields(PairwiseTensors):
             targets).
     """
     def __init__(self, **kwargs):
-        super().__init__(dtype='field', **kwargs)
+        super().__init__(layer_type='field', **kwargs)
 
     def read(self, tgt_to_src, bcube, mip):
         """Get field created by composing fields accessed by z_list[::-1]

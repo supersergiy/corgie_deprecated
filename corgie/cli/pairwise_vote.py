@@ -1,10 +1,12 @@
 import click
 import procspec
+from copy import deepcopy
 import numpy as np
 import torch
 import torchfields
 
 from corgie import scheduling, argparsers, helpers
+from corgie.mipless_cloudvolume import MiplessCloudVolume
 
 from corgie.log import logger as corgie_logger
 from corgie.layers import get_layer_types, DEFAULT_LAYER_TYPE, \
@@ -48,7 +50,7 @@ class PairwiseVoteJob(scheduling.Job):
         super().__init__()
 
     def task_generator(self):
-        tmp_layer = self.estimated_fields.get_layer()
+        tmp_layer = self.estimated_fields.reference_layer
         chunks = tmp_layer.break_bcube_into_chunks(
                     bcube=self.bcube,
                     chunk_xy=self.chunk_xy,
@@ -126,7 +128,8 @@ class PairwiseVoteTask(scheduling.Task):
         for offset, paths in self.paths.items():
             print('Voting for F[{}]'.format((z+offset, z)))
             estimate_list = []
-            for tgt_to_src in paths:
+            for tgt_to_src_offsets in paths:
+                tgt_to_src = [z+offset for offset in tgt_to_src_offsets]
                 print('Using fields F[{}]'.format(tgt_to_src))
                 estimate_list.append(self.estimated_fields.read(tgt_to_src, 
                                                         bcube=pbcube, 
@@ -153,33 +156,27 @@ class PairwiseVoteTask(scheduling.Task):
 
 @corgie_optgroup('Layer Parameters')
 
-@corgie_option('--estimated_fields_spec',  '-ef', nargs=1,
-        type=str, required=True, multiple=True,
-        help='Estimated pairwise fields layer spec. ' \
-             'Use multiple times to include all fields indexed by offset. ' + \
-                LAYER_HELP_STR)
-#
-@corgie_option('--corrected_fields_spec', '-cf', nargs=1,
-        type=str, required=False, multiple=True,
-        help='Corrected pairwise fields layer spec. ' \
-             'Target layer spec. Use multiple times to include all masks, fields, images. '\
-                'DEFAULT: Same as source layers')
+@corgie_option('--estimated_fields_dir',  '-ef', nargs=1,
+        type=str, required=True, 
+        help='Estimated pairwise fields root directory.')
+@corgie_option('--corrected_fields_dir',  '-cf', nargs=1,
+        type=str, required=True, 
+        help='Corrected pairwise fields root directory.')
+@corgie_option('--corrected_weights_dir',  '-cw', nargs=1,
+        type=str, required=True, 
+        help='Corrected pairwise weights root directory.')
 
-@corgie_option('--corrected_weights_spec', '-cw', nargs=1,
-        type=str, required=False, multiple=True,
-        help='Corrected pairwise field weights layer spec. ' \
-             'Target layer spec. Use multiple times to include all masks, fields, images. '\
-                'DEFAULT: Same as source layers')
-
-@corgie_optgroup('Compute Field Method Specification')
+@corgie_optgroup('Pairwise Vote Method Specification')
+@corgie_option('--offsets',      nargs=1, type=str, required=True)
 @corgie_option('--chunk_xy',       '-c', nargs=1, type=int, default=1024)
 @corgie_option('--chunk_z',              nargs=1, type=int, default=1)
-@corgie_option('--blend_xy',             nargs=1, type=int, default=0)
 @corgie_option('--pad',                  nargs=1, type=int, default=512)
+@corgie_option('--mip',                  nargs=1, type=int, default=0)
 @corgie_option('--softmin_temp',         nargs=1, type=float, default=1)
 @corgie_option('--blur_sigma',           nargs=1, type=float, default=1)
 @corgie_optgroup('')
 @corgie_option('--crop',                 nargs=1, type=int, default=None)
+@corgie_option('--suffix',               nargs=1, type=str, default='')
 
 @corgie_optgroup('Data Region Specification')
 @corgie_option('--start_coord',      nargs=1, type=str, required=True)
@@ -187,9 +184,10 @@ class PairwiseVoteTask(scheduling.Task):
 @corgie_option('--coord_mip',        nargs=1, type=int, default=0)
 
 @click.pass_context
-def pairwise_vote(ctx, estimated_fields_spec,  
-                       corrected_fields_spec, 
-                       corrected_corrected_weights_spec,
+def pairwise_vote(ctx, estimated_fields_dir,  
+                       corrected_fields_dir, 
+                       corrected_weights_dir,
+                       offsets,
                        pad, 
                        crop, 
                        chunk_xy, 
@@ -198,9 +196,9 @@ def pairwise_vote(ctx, estimated_fields_spec,
                        coord_mip, 
                        chunk_z, 
                        mip,
-                       reference_key,
                        softmin_temp,
-                       blur_sigma):
+                       blur_sigma,
+                       suffix):
     """Use vector voting to correct pairwise estimates.
 
     Consider multiple estimates of SRC to TGT using composition,
@@ -210,12 +208,30 @@ def pairwise_vote(ctx, estimated_fields_spec,
     scheduler = ctx.obj['scheduler']
 
     corgie_logger.debug("Setting up layers...")
-    estimated_fields = PairwiseFields()
-    estimated_fields.add_layers_from_specs(estimated_fields_spec,
-                                           readonly=True)
+    offsets = [int(i) for i in offsets.split(',')]
+    estimated_fields = PairwiseFields(name='estimated_fields',
+                                      folder=estimated_fields_dir)
+    estimated_fields.add_offsets(offsets, readonly=True, suffix=suffix)
 
-    corrected_fields = PairwiseFields()
-    corrected_weights = PairwiseTensors()
+    corrected_fields = PairwiseFields(name='corrected_fields',
+                                      folder=corrected_fields_dir)
+    corrected_fields.add_offsets(offsets, 
+                                 readonly=False, 
+                                 reference=estimated_fields,
+                                 overwrite=True)
+    weight_info = deepcopy(estimated_fields.get_info())
+    weight_info['num_channels'] = 1
+    # dummy object for get_info() method
+    weight_ref = MiplessCloudVolume(path='file://tmp/cloudvolume/empty',
+                             info=weight_info,
+                             overwrite=False)
+    corrected_weights = PairwiseTensors(name='corrected_weigths',
+                                        folder=corrected_weights_dir)
+    corrected_weights.add_offsets(offsets, 
+                                 readonly=False, 
+                                 reference=weight_ref,
+                                 dtype='float32',
+                                 overwrite=True)
 
     # dst_layer = create_layer_from_spec(corrected_fields_spec, 
     #                                     allowed_types=['field'],
