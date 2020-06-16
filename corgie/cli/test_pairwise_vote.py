@@ -112,9 +112,9 @@ def test_pairwise_vote_task():
     cx[:,1,:,:] = 2/3
     px = CF.read((3,0), bcube=bcube, mip=mip)
     assert(torch.allclose(px, cx, atol=1e-3))
-    cw = torch.ones((1, 1, 4, 4))*2
+    cw = torch.ones((1, 1, 4, 4))*3
     pw = CW.read((3,0), bcube=bcube, mip=mip)
-    assert(torch.allclose(pw, cw))
+    assert(torch.allclose(pw, cw, atol=1e-2))
 
     delete_layer('/tmp/cloudvolume/empty_fields')
     delete_layer('/tmp/cloudvolume/empty_weights')

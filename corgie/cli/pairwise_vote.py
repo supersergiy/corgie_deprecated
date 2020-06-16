@@ -44,6 +44,7 @@ class PairwiseVoteJob(scheduling.Job):
         self.paths            = {-3: [(-3, 0), (-3, -2, 0), (-3, -1, 0)],
                                  -2: [(-2, 0), (-2, -3, 0), (-2, -1, 0)],
                                  -1: [(-1, 0), (-1, -2, 0), (-1,  1, 0)],
+                                  0: [( 0, 0), ( 0, -1, 0), ( 0,  1, 0)],
                                   1: [( 1, 0), ( 1, -1, 0), ( 1,  2, 0)],
                                   2: [( 2, 0), ( 2,  1, 0), ( 2,  3, 0)],
                                   3: [( 3, 0), ( 3,  2, 0), ( 3,  1, 0)]}
@@ -135,11 +136,10 @@ class PairwiseVoteTask(scheduling.Task):
                                                         bcube=pbcube, 
                                                         mip=self.mip))
             estimates = torch.cat(estimate_list).field_()
-            weights = estimates.voting_weights(softmin_temp=self.softmin_temp,
-                                                             blur_sigma=self.blur_sigma)
-            partition = weights.sum(dim=0, keepdim=True)
-            weights = weights / partition
-            field = (estimates * weights.unsqueeze(-3)).sum(dim=0, keepdim=True)
+            _, partition = estimates.get_vote_weights(softmin_temp=self.softmin_temp,
+                                                           blur_sigma=self.blur_sigma)
+            field = estimates.vote(softmin_temp=self.softmin_temp,
+                                   blur_sigma=self.blur_sigma)
             cropped_partition = helpers.crop(partition.unsqueeze(0), self.crop)
             cropped_field = helpers.crop(field, self.crop)
             self.corrected_fields.write(data=cropped_field, 
@@ -211,7 +211,13 @@ def pairwise_vote(ctx, estimated_fields_dir,
     offsets = [int(i) for i in offsets.split(',')]
     estimated_fields = PairwiseFields(name='estimated_fields',
                                       folder=estimated_fields_dir)
-    estimated_fields.add_offsets(offsets, readonly=True, suffix=suffix)
+    nonzero_offsets = [o for o in offsets if o != 0]
+    estimated_fields.add_offsets(nonzero_offsets, readonly=True, suffix=suffix)
+    zero_offsets = [o for o in offsets if o == 0]
+    estimated_fields.add_offsets(zero_offsets, 
+                                 readonly=False, 
+                                 suffix=suffix,
+                                 reference=estimated_fields)
 
     corrected_fields = PairwiseFields(name='corrected_fields',
                                       folder=corrected_fields_dir)
@@ -225,7 +231,7 @@ def pairwise_vote(ctx, estimated_fields_dir,
     weight_ref = MiplessCloudVolume(path='file://tmp/cloudvolume/empty',
                              info=weight_info,
                              overwrite=False)
-    corrected_weights = PairwiseTensors(name='corrected_weigths',
+    corrected_weights = PairwiseTensors(name='corrected_weights',
                                         folder=corrected_weights_dir)
     corrected_weights.add_offsets(offsets, 
                                  readonly=False, 
