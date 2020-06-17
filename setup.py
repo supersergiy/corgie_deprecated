@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="corgie",
-    version="0.0.7",
+    version="0.0.8",
     author="Sergiy Popovych",
     author_email="sergiy.popovich@gmail.com",
     description="Connectomics Registration General Inference Engine",
@@ -23,8 +23,8 @@ setuptools.setup(
       'six',
       'pyyaml',
       'mazepa',
-      'click',
       'click-option-group',
+      'click',
       'procspec',
       'modelhouse'
     ],

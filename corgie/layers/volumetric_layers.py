@@ -10,14 +10,26 @@ from corgie.layers.base import register_layer_type, BaseLayerType
 from corgie import helpers
 
 class VolumetricLayer(BaseLayerType):
-    def __init__(self, data_mip_ranges=None, **kwargs):
+    def __init__(self, data_mip=None, **kwargs):
         super().__init__(**kwargs)
-        self.declared_write_mips = []
-        self.declared_write_bcube = BoundingCube(0, 0, 0, 0, 0, 0, 0)
+        self.data_mip = data_mip
 
     def read(self, bcube, mip, **kwargs):
         indexed_bcube = self.indexing_scheme(bcube, mip, kwargs)
-        return super().read(bcube=indexed_bcube, mip=mip, **kwargs)
+        if self.data_mip is not None:
+            if mip <= self.data_mip:
+                result_data_mip = super().read(bcube=indexed_bcube,
+                        mip=self.data_mip, **kwargs)
+                result = result_data_mip
+                for _ in range(mip, self.data_mip):
+                    result = self.get_upsampler()(result)
+            else:
+                raise exceptions.CorgieException(f"Attempting to read from higher MIP (MIP {mip}) "
+                        f"than the declared data MIP (MIP {self.data_mip}) for {str(self)}")
+        else:
+            result = super().read(bcube=indexed_bcube, mip=mip, **kwargs)
+
+        return result
 
     def write(self, data_tens, bcube, mip, **kwargs):
         indexed_bcube = self.indexing_scheme(bcube, mip, kwargs)
@@ -116,7 +128,7 @@ class FieldLayer(VolumetricLayer):
                                 scale_factor=1/2,
                                 align_corners=False,
                     recompute_scale_factor=False)
-            return downs_data * 2
+            return downs_data * 0.5
 
         return downsampler
 
@@ -127,7 +139,7 @@ class FieldLayer(VolumetricLayer):
                                 scale_factor=2.0,
                                 align_corners=False,
                     recompute_scale_factor=False)
-            return ups_data * 0.5
+            return ups_data * 2
 
         return upsampler
 

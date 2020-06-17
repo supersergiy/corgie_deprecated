@@ -4,6 +4,8 @@ COMMAND_LIST = []
 
 from corgie.cli.downsample import downsample
 COMMAND_LIST.append(downsample)
+from corgie.cli.upsample import upsample
+COMMAND_LIST.append(upsample)
 from corgie.cli.compute_field import compute_field
 COMMAND_LIST.append(compute_field)
 from corgie.cli.compute_stats import compute_stats

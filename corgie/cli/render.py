@@ -8,8 +8,8 @@ from corgie.layers import get_layer_types, DEFAULT_LAYER_TYPE, \
                              str_to_layer_type
 from corgie.boundingcube import get_bcube_from_coords
 from corgie.argparsers import LAYER_HELP_STR, \
-        create_layer_from_spec, corgie_optgroup, corgie_option
-
+        create_layer_from_spec, corgie_optgroup, corgie_option, \
+        create_stack_from_spec
 
 class RenderJob(scheduling.Job):
     def __init__(self, src_stack, dst_stack, mip, pad, render_masks,
@@ -157,6 +157,8 @@ class RenderTask(scheduling.Task):
 @corgie_option('--render_masks/--no_render_masks',          default=False)
 @corgie_option('--blackout_masks/--no_blackout_masks',      default=True)
 @corgie_option('--seethrough/--no_seethrough',          default=True)
+@corgie_option('--force_chunk_xy',     is_flag=True)
+@corgie_option('--force_chunk_z',      is_flag=True)
 
 @corgie_optgroup('Data Region Specification')
 @corgie_option('--start_coord',      nargs=1, type=str, required=True)
@@ -165,17 +167,27 @@ class RenderTask(scheduling.Task):
 
 @click.pass_context
 def render(ctx, src_layer_spec, dst_folder, pad, render_masks, blackout_masks,
-         seethrough, chunk_xy, chunk_z, start_coord, end_coord,
-         coord_mip, suffix):
+         seethrough, chunk_xy, chunk_z, start_coord, end_coord, mip,
+         coord_mip, force_chunk_xy, force_chunk_z):
     scheduler = ctx.obj['scheduler']
 
     corgie_logger.debug("Setting up layers...")
     src_stack = create_stack_from_spec(src_layer_spec,
             name='src', readonly=True)
 
+    if force_chunk_xy:
+        force_chunk_xy = chunk_xy
+    else:
+        force_chunk_xy = None
+
+    if force_chunk_z:
+        force_chunk_z = chunk_z
+    else:
+        force_chunk_z = None
+
     dst_stack = stack.create_stack_from_reference(reference_stack=src_stack,
             folder=dst_folder, name="dst", types=["img", "mask"],
-            overwrite=True)
+            force_chunk_xy=force_chunk_xy, force_chunk_z=force_chunk_z, overwrite=True)
 
     bcube = get_bcube_from_coords(start_coord, end_coord, coord_mip)
 

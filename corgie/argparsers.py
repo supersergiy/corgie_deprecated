@@ -42,8 +42,10 @@ def create_layer_from_spec(spec_str, reference=None, caller_name=None,
             "data_backend": DEFAULT_DATA_BACKEND,
             "args": {}
             }
-
     param_dict = json.loads(spec_str)
+    for k in param_dict.keys():
+        if k not in default_param_dict:
+            raise exceptions.CorgieException(f"Unkown layer parameter '{k}'")
     params = {**default_param_dict, **param_dict}
 
     if params["path"] is None:
