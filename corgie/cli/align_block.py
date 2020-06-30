@@ -112,7 +112,7 @@ class AlignBlockJob(scheduling.Job):
 #@corgie_option('--seethrough_masks',    nargs=1, type=bool, default=False)
 #@corgie_option('--seethrough_misalign', nargs=1, type=bool, default=False)
 @corgie_option('--render_pad',          nargs=1, type=int,  default=512)
-@corgie_option('--render_chunk_xy',     nargs=1, type=int,  default=3072)
+@corgie_option('--render_chunk_xy',     nargs=1, type=int,  default=1024)
 
 @corgie_optgroup('Compute Field Method Specification')
 @corgie_option('--processor_spec',      nargs=1, type=str, required=True,

@@ -1,5 +1,6 @@
 import json
 import six
+import copy
 
 import cloudvolume
 from cloudvolume import CloudVolume, Storage
@@ -117,10 +118,51 @@ class MiplessCloudVolume():
 
             self.store_info(tmp_cv.info)
 
+    def extend_info_to_mip(self, mip):
+        info = self.get_info()
+        highest_mip = len(info['scales']) - 1
+        highest_mip_info = info['scales'][-1]
+
+        if highest_mip >= mip:
+            return
+
+        while (highest_mip < mip):
+            new_highest_mip_info = copy.deepcopy(highest_mip_info)
+            #size
+            #voxel offset
+            #resolution -> key
+            new_highest_mip_info['size'] = [
+                    highest_mip_info['size'][0] // 2,
+                    highest_mip_info['size'][1] // 2,
+                    highest_mip_info['size'][2]
+                ]
+
+            new_highest_mip_info['voxel_offset'] = [
+                    highest_mip_info['voxel_offset'][0] // 2,
+                    highest_mip_info['voxel_offset'][1] // 2,
+                    highest_mip_info['voxel_offset'][2]
+                ]
+
+            new_highest_mip_info['resolution'] = [
+                    highest_mip_info['resolution'][0] * 2,
+                    highest_mip_info['resolution'][1] * 2,
+                    highest_mip_info['resolution'][2]
+                ]
+
+            new_highest_mip_info['key'] = '_'.join([str(i) for i in new_highest_mip_info['resolution']])
+            info['scales'].append(new_highest_mip_info)
+            highest_mip += 1
+            highest_mip_info = new_highest_mip_info
+
+        self.store_info()
+
     def create(self, mip):
 
         corgie_logger.debug('Creating CloudVolume for {0} at MIP{1}'.format(self.path, mip))
+        self.extend_info_to_mip(mip)
+
         self.cvs[mip] = self.obj(self.path, mip=mip, **self.cv_params)
+
 
         #if self.mkdir:
         #  self.cvs[mip].commit_info()

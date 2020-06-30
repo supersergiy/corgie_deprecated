@@ -75,7 +75,7 @@ class NormalizeTask(scheduling.Task):
                 mask_list=self.mask_layers,
                 bcube=self.bcube, mip=self.mip)
 
-        dst_data = (src_data - mean_data) / var_data
+        dst_data = (src_data - mean_data) / var_data.sqrt()
         if mask_data is not None:
             dst_data[mask_data] = self.mask_value
         self.dst_layer.write(dst_data, self.bcube, mip=self.mip)

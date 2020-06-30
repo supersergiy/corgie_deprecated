@@ -1,4 +1,5 @@
 import math
+import torch
 
 import click
 from click_option_group import optgroup
@@ -123,9 +124,14 @@ class ComputeStatsTask(scheduling.Task):
 
         if mask_data is not None:
             src_data = src_data[mask_data == 0]
+        src_data = src_data[src_data != 0]
+        src_data = src_data[src_data == src_data]
 
         if self.mean_layer is not None:
-            mean = src_data[src_data != 0].float().mean()
+            if len(src_data) == 0:
+                mean = torch.FloatTensor([0], device=src_data.device)
+            else:
+                mean = src_data.float().mean()
             self.mean_layer.write(
                     mean,
                     bcube=self.bcube,
@@ -134,7 +140,10 @@ class ComputeStatsTask(scheduling.Task):
                     channel_end=self.write_channel + 1)
 
         if self.var_layer is not None:
-            var = src_data[src_data != 0].float().var()
+            if len(src_data) == 0:
+                var = torch.FloatTensor([0], device=src_data.device)
+            else:
+                var = src_data.float().var()
 
             self.var_layer.write(
                     var,
