@@ -108,6 +108,7 @@ class RenderTask(scheduling.Task):
                         agg_mask.float(),
                         agg_field)
                     warped_mask = (warped_mask > 0.4).byte()
+                    warped_mask
                 else:
                     warped_mask = None
             else:

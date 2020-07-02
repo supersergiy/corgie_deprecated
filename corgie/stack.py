@@ -104,22 +104,22 @@ class Stack(StackBase):
             name_prefix = f"{stack_name}_"
 
         for l in field_layers:
-            this_field = l.read(bcube=bcube, mip=mip)
             global_name = "{}{}".format(name_prefix, l.name)
+            this_field = l.read(bcube=bcube, mip=mip)
             data_dict[global_name] = this_field
-
-            if agg_field is not None:
-                agg_field = compose_fields(agg_field, this_field,
-                        is_pix_res=True)
-            else:
+            if agg_field is None:
                 agg_field = this_field
-        assert (f"{name_prefix}_agg_field" not in data_dict)
+            else:
+                agg_field = this_field.field().from_pixels()(agg_field.field().from_pixels()).pixels()
+
+        assert (f"{name_prefix}agg_field" not in data_dict)
         data_dict[f"{name_prefix}agg_field"] = agg_field
 
         if translation_adjuster is not None:
             translaiton = translation_adjuster(agg_field)
         else:
             translation = helpers.Translation(0, 0)
+
         final_bcube = copy.deepcopy(bcube)
         final_bcube = final_bcube.translate(
                 x_offset=translation.x,
