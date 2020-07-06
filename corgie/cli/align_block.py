@@ -80,7 +80,7 @@ class AlignBlockJob(scheduling.Job):
                     src_stack=self.src_stack,
                     dst_stack=self.dst_stack,
                     bcube=src_bcube,
-                    seethrough=False,
+                    seethrough=True,
                     blackout_masks=False,
                     seethrough_offset=seethrough_offset
                     )
