@@ -1,5 +1,6 @@
+import torch
+import numpy as np
 from dataclasses import dataclass
-
 
 class Binarizer:
     def __init__(self, binarization):
@@ -67,3 +68,17 @@ def crop(data, c):
         elif data.shape[-2] == data.shape[-3] and data.shape[-1] == 2: #field
             return data[..., c:-c, c:-c, :]
 
+def coarsen_mask(mask, n=1, flip=False):
+    kernel = np.array([[1, 1, 1], [1, 1, 1], [1, 1, 1]])
+    kernel_var = torch.FloatTensor(kernel).unsqueeze(0).unsqueeze(0).to(mask.device).float()
+    k = torch.nn.Parameter(data=kernel_var, requires_grad=False)
+    for _ in range(n):
+        if flip:
+            mask = mask.logical_not()
+        mask =  (torch.nn.functional.conv2d(mask.float(),
+                                kernel_var, padding=1) > 1)
+        if flip:
+            mask = mask.logical_not()
+        mask = mask
+
+    return mask

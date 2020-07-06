@@ -11,7 +11,8 @@ from corgie.argparsers import LAYER_HELP_STR, \
         create_layer_from_spec, corgie_optgroup, corgie_option, \
         create_stack_from_spec
 
-from corgie.cli.common import ChunkedJob
+from corgie.cli.common     import ChunkedJob
+from corgie.cli.downsample import DownsampleJob
 
 
 class ComputeFieldJob(scheduling.Job):
@@ -71,13 +72,16 @@ class ComputeFieldJob(scheduling.Job):
                     suffix=self.suffix
                     )
 
-
             yield from chunked_job.task_generator
+
+            # this processors MIP has the freshest field
 
             if not is_last_proc:
                 yield scheduling.wait_until_done
+                self.dst_layer.data_mip = this_proc_mip
+
                 next_proc_mip = self.processor_mip[i + 1]
-                if this_proc_mip > next_proc_mip:
+                if this_proc_mip < next_proc_mip:
                     downsample_job = DownsampleJob(
                                 src_layer=self.dst_layer,
                                 chunk_xy=self.chunk_xy,
@@ -102,6 +106,12 @@ class ComputeFieldJob(scheduling.Job):
                             bcube=self.bcube
                             )
 
+            yield scheduling.wait_until_done
+            yield from downsample_job.task_generator
+
+            # field is fresh at all mip layers
+            self.dst_layer.data_mip = None
+
 
 class ComputeFieldTask(scheduling.Task):
     def __init__(self, processor_spec, src_stack, tgt_stack, dst_layer,  mip,
@@ -123,7 +133,6 @@ class ComputeFieldTask(scheduling.Task):
 
         processor = procspec.parse_proc(
                 spec_str=self.processor_spec)
-
         src_translation, src_data_dict = self.src_stack.read_data_dict(src_bcube,
                 mip=self.mip, stack_name='src')
         tgt_translation, tgt_data_dict = self.tgt_stack.read_data_dict(tgt_bcube,

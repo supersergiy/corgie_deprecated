@@ -61,6 +61,7 @@ class AlignBlockJob(scheduling.Job):
 
         align_field_layer = self.dst_stack.create_sublayer(f'align_field{self.suffix}',
                 layer_type='field', overwrite=True)
+        self.src_stack.add_layer(align_field_layer)
 
         for z in range(z_start + z_step, z_end + z_step, z_step):
             tgt_bcube = src_bcube
@@ -79,9 +80,8 @@ class AlignBlockJob(scheduling.Job):
                     src_stack=self.src_stack,
                     dst_stack=self.dst_stack,
                     bcube=src_bcube,
-                    additional_fields=[align_field_layer],
                     seethrough=True,
-                    blackout_masks=True,
+                    blackout_masks=False,
                     seethrough_offset=seethrough_offset
                     )
 
@@ -161,7 +161,7 @@ def align_block(ctx, src_layer_spec, tgt_layer_spec, dst_folder, render_pad, ren
             chunk_xy=render_chunk_xy,
             chunk_z=1,
             render_masks=False,
-            mip=min(processor_mip)
+            mips=processor_mip
             )
 
     cf_method = helpers.PartialSpecification(

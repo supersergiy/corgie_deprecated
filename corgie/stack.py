@@ -107,10 +107,11 @@ class Stack(StackBase):
             global_name = "{}{}".format(name_prefix, l.name)
             this_field = l.read(bcube=bcube, mip=mip)
             data_dict[global_name] = this_field
-            if agg_field is None:
+            agg_field = this_field
+            '''if agg_field is None:
                 agg_field = this_field
             else:
-                agg_field = this_field.field().from_pixels()(agg_field.field().from_pixels()).pixels()
+                agg_field = this_field.field().from_pixels()(agg_field.field().from_pixels()).pixels()'''
 
         assert (f"{name_prefix}agg_field" not in data_dict)
         data_dict[f"{name_prefix}agg_field"] = agg_field
