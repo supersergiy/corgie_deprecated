@@ -69,7 +69,7 @@ class RenderTask(scheduling.Task):
         self.additional_fields = additional_fields
         self.seethrough = seethrough
         self.seethrough_offset = seethrough_offset
-        self.blackout_value = -2.0
+        self.blackout_value = 0.0
 
     def execute(self):
         padded_bcube = self.bcube.uncrop(self.pad, self.mip)
@@ -97,7 +97,7 @@ class RenderTask(scheduling.Task):
                         agg_mask = ((agg_mask + d) > 0).byte()
 
             if agg_mask is not None:
-                coarsen_factor = int(2**(5 - self.mip))
+                coarsen_factor = int(2**(6 - self.mip))
                 agg_mask = helpers.coarsen_mask(agg_mask, coarsen_factor)
                 if agg_field is not None:
                     warped_mask = residuals.res_warp_img(
@@ -138,7 +138,7 @@ class RenderTask(scheduling.Task):
                             bcube=seethrough_bcube,
                             mip=self.mip)
 
-                    coarsen_factor = int(2**(5 - self.mip))
+                    coarsen_factor = int(2**(6 - self.mip))
                     seethrough_mask = helpers.coarsen_mask(warped_mask, coarsen_factor)
 
                     cropped_out[seethrough_mask] = \

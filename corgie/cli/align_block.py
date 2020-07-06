@@ -53,7 +53,7 @@ class AlignBlockJob(scheduling.Job):
                     dst_stack=self.dst_stack,
                     bcube=start_sec_bcube,
                     seethrough=False,
-                    blackout_masks=False)
+                    blackout_masks=True)
 
             yield from render_job.task_generator
             yield scheduling.wait_until_done
@@ -80,7 +80,7 @@ class AlignBlockJob(scheduling.Job):
                     src_stack=self.src_stack,
                     dst_stack=self.dst_stack,
                     bcube=src_bcube,
-                    seethrough=True,
+                    seethrough=False,
                     blackout_masks=False,
                     seethrough_offset=seethrough_offset
                     )
