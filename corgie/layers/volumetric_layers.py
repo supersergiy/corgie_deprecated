@@ -169,10 +169,7 @@ class MaskLayer(VolumetricLayer):
 
     def get_downsampler(self):
         def downsampler(data_tens):
-            return torch.nn.functional.interpolate(data_tens.float(),
-                    mode='nearest',
-                    scale_factor=1/2,
-                    recompute_scale_factor=False)
+            return torch.nn.functional.max_pool2d(data_tens.float(), kernel_size=2)
         return downsampler
 
     def get_upsampler(self):
