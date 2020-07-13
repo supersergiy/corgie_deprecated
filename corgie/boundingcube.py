@@ -129,7 +129,10 @@ class BoundingCube:
         return int(self.z[1] - self.z[0])
 
     @property
-    def size(self, mip=0):
+    def size(self):
+        return self._size(self, mip=0)
+
+    def _size(self, mip):
         return self.x_size(mip=mip), self.y_size(mip=mip), self.z_size()
 
     def crop(self, crop_xy, mip):
