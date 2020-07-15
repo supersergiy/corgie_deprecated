@@ -130,7 +130,7 @@ class BoundingCube:
 
     @property
     def size(self):
-        return self._size(self, mip=0)
+        return self._size(mip=0)
 
     def _size(self, mip):
         return self.x_size(mip=mip), self.y_size(mip=mip), self.z_size()
