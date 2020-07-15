@@ -194,7 +194,10 @@ class PairwiseFields(PairwiseTensors):
             abcube = abcube.translate(x=int(trans[0,0,0,0]), 
                                       y=int(trans[0,1,0,0]))
             agg_field -= trans
+            agg_field = agg_field.from_pixels()
             this_field = layer.read(bcube=abcube, mip=mip).field_()
+            this_field = this_field.from_pixels()
             agg_field = agg_field(this_field)
+            agg_field = agg_field.pixels()
             agg_field += trans
         return agg_field
