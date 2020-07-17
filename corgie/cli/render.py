@@ -7,7 +7,8 @@ from corgie.layers import get_layer_types, DEFAULT_LAYER_TYPE, \
                              str_to_layer_type
 from corgie.boundingcube import get_bcube_from_coords
 from corgie.argparsers import LAYER_HELP_STR, \
-        create_layer_from_spec, corgie_optgroup, corgie_option
+        create_layer_from_spec, corgie_optgroup, corgie_option, \
+        create_stack_from_spec
 
 
 class RenderJob(scheduling.Job):
@@ -114,17 +115,17 @@ class RenderTask(scheduling.Task):
 @corgie_option('--chunk_z',              nargs=1, type=int, default=1)
 @corgie_option('--pad',                  nargs=1, type=int, default=512)
 @corgie_option('--mip',                  nargs=1, type=int, required=True)
-@corgie_option('--render_masks/--no_render_masks',          default=True)
+@corgie_option('--render_masks/--no_render_masks',          default=False)
 @corgie_option('--blackout_masks/--no_blackout_masks',      default=False)
+@corgie_option('--suffix',               nargs=1, type=str, default='')
 
 @corgie_optgroup('Data Region Specification')
 @corgie_option('--start_coord',      nargs=1, type=str, required=True)
 @corgie_option('--end_coord',        nargs=1, type=str, required=True)
 @corgie_option('--coord_mip',        nargs=1, type=int, default=0)
-@corgie_option('--tgt_z_offset',     nargs=1, type=str, default=1)
 
 @click.pass_context
-def render(ctx, src_layer_spec, dst_folder, pad, render_masks, blackout_masks,
+def render(ctx, src_layer_spec, dst_folder, mip, pad, render_masks, blackout_masks,
          chunk_xy, chunk_z, start_coord, end_coord, coord_mip, suffix):
     scheduler = ctx.obj['scheduler']
 
