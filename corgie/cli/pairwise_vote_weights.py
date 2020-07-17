@@ -97,32 +97,40 @@ class PairwiseVoteWeightsTask(scheduling.Task):
     def execute(self):
         z = self.bcube.z[0]
         pbcube = self.bcube.uncrop(self.pad, self.mip)
-        fields = []
-        subset_size = len(self.fields.offsets) // 2
+        fields = {} 
         for offset in self.fields.offsets:
             tgt_to_src_offsets = [0, offset, 0]
             tgt_to_src = [z+offset for offset in tgt_to_src_offsets]
-            print('Using fields F[{}]'.format(tgt_to_src))
-            fields.append(self.fields.read(tgt_to_src, 
-                                               bcube=pbcube, 
-                                               mip=self.mip))
-        fields = torch.cat(fields).field()
-        weights = fields.get_vote_weights(softmin_temp=self.softmin_temp, 
-                                          blur_sigma=self.blur_sigma,
-                                          subset_size=subset_size)
-        # TODO: adjust the identity field to be something non-identity based on voting
-        weights = weights.unsqueeze(1)
-        for i, offset in enumerate(self.fields.offsets):
-            tgt_to_src = [z+offset, z]
+            # TODO: Introduce processing for partial identity fields
+            # TODO: Consider when XOR(forward.is_identity, reverse.is_identity)
             f = self.fields.read(tgt_to_src, 
-                                 bcube=pbcube, 
-                                 mip=self.mip).from_pixels()
-            warped_weights = f(weights[i]).unsqueeze(0)
-            cropped_weights = helpers.crop(warped_weights, self.crop)
-            self.weights.write(data=cropped_weights,
-                               tgt_to_src=(z+offset, z),
-                               bcube=self.bcube, 
-                               mip=self.mip)
+                                    bcube=pbcube, 
+                                    mip=self.mip)
+            if not f.is_identity():
+                print('Using field F[{}]'.format(tgt_to_src))
+                fields[offset] = f
+
+        if len(fields) > 0:
+            subset_size = (len(fields) + 1) // 2
+            offsets = list(fields.keys())
+            offsets.sort()
+            weighting_fields = torch.cat([fields[k] for k in offsets]).field()
+            weights = weighting_fields.get_vote_weights(softmin_temp=self.softmin_temp, 
+                                            blur_sigma=self.blur_sigma,
+                                            subset_size=subset_size)
+            weights = weights.unsqueeze(1)
+            for i, offset in enumerate(offsets):
+                tgt_to_src = [z+offset, z]
+                f = self.fields.read(tgt_to_src, 
+                                    bcube=pbcube, 
+                                    mip=self.mip).from_pixels()
+                warped_weights = f(weights[i]).unsqueeze(0)
+                cropped_weights = helpers.crop(warped_weights, self.crop)
+                print('Writing weights for F[{}]'.format(tgt_to_src))
+                self.weights.write(data=cropped_weights,
+                                tgt_to_src=tgt_to_src,
+                                bcube=self.bcube, 
+                                mip=self.mip)
 
 
 @click.command()
