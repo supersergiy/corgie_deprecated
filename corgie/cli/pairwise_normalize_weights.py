@@ -65,7 +65,8 @@ class PairwiseNormalizeWeightsJob(scheduling.Job):
                  crop,
                  bcube,
                  mip,
-                 bump_sigma):
+                 bump_sigma,
+                 identity_op):
         self.input_weights  = input_weights
         self.output_weights = output_weights
         self.chunk_xy         = chunk_xy
@@ -75,6 +76,7 @@ class PairwiseNormalizeWeightsJob(scheduling.Job):
         self.bcube            = bcube
         self.mip              = mip
         self.bump_sigma       = bump_sigma
+        self.identity_op      = identity_op
         super().__init__()
 
     def task_generator(self):
@@ -92,7 +94,8 @@ class PairwiseNormalizeWeightsJob(scheduling.Job):
                                     pad=self.pad,
                                     crop=self.crop,
                                     bcube=chunk,
-                                    bump_sigma=self.bump_sigma) for chunk in chunks]
+                                    bump_sigma=self.bump_sigma,
+                                    identity_op=self.identity_op) for chunk in chunks]
 
         corgie_logger.debug("Yielding PairwiseNormalizeWeightsTasks for bcube: {}, MIP: {}".format(
                                 self.bcube, 
@@ -108,7 +111,7 @@ class PairwiseNormalizeWeightsTask(scheduling.Task):
                   crop, 
                   bcube,
                   bump_sigma=1.,
-                  fill_identity=True):
+                  identity_op='zero'):
         """Reweight pairwise voting weights for each corrected field of Z to its neighbors
         using a bump function of sigma then normalize the set of reweighted fields so that they all sum to one.
 
@@ -120,7 +123,10 @@ class PairwiseNormalizeWeightsTask(scheduling.Task):
             crop (int): xy cropping
             bcbue (BoundingCube): xy range indicates chunk, z_start indicates SOURCE
             bump_sigma (float): std of bump function used to reweight voting weights 
-            fill_identity (bool): use maximum of all weights for z_{z+0 \rightarrow z}
+            identity_op (str): set weights of identity field f_{z+0 \rightarrow z} to:
+                zero: all weights will be zero
+                fill: all weights will be the maximum of their neighbors
+                load: weights will be loaded from input_weights
         """
         super().__init__()
         self.input_weights   = input_weights
@@ -130,19 +136,15 @@ class PairwiseNormalizeWeightsTask(scheduling.Task):
         self.crop            = crop
         self.bcube           = bcube
         self.bump_sigma      = bump_sigma
-        self.fill_identity   = fill_identity
+        self.identity_op     = identity_op
 
     def execute(self):
         device = self.input_weights.reference_layer.device
         weights_list = []
         offsets = self.input_weights.offsets
         offsets.sort()
-        adjusted_offsets = offsets
-        if self.fill_identity:
-            # remove 0 offset for special handling
-            adjusted_offsets = [o for o in offsets if o != 0]
 
-        for offset in adjusted_offsets:
+        for offset in offsets:
             src = self.bcube.z[0]
             tgt = src+offset
             wts = self.input_weights.read(tgt_to_src=(tgt, src), 
@@ -150,19 +152,22 @@ class PairwiseNormalizeWeightsTask(scheduling.Task):
                                           mip=self.mip)
             weights_list.append(wts)
 
-        if self.fill_identity:
+        if self.identity_op != 'load':
             # identify where 0 offset should be
             m = len(weights_list)-1
-            while (m > 0) and (adjusted_offsets[m] > 0):
+            while (m > 0) and (offsets[m] > 0):
                 m -= 1
-            # fill 0 offset with max weight of other offsets
-            maxwt = max([torch.max(wt) for wt in weights_list])
-            if maxwt == 0:
-                maxwt = 1
-            zero_weights = torch.full_like(weights_list[0], maxwt)
+            zero_weights = torch.zeros_like(weights_list[0])
+            if self.identity_op == 'fill':
+                # fill 0 offset with max weight of other offsets
+                maxwt = max([torch.max(wt) for wt in weights_list])
+                if maxwt == 0:
+                    maxwt = 1
+                zero_weights = torch.full_like(weights_list[0], maxwt)
             weights_list = [*weights_list[:m+1], 
                             zero_weights, 
                             *weights_list[m+1:]]
+            offsets = [*offsets[:m+1], 0, *offsets[m+1:]]
 
         weights = torch.cat(weights_list)
         normed_weights = normalize_weights(weights, 
@@ -189,11 +194,12 @@ class PairwiseNormalizeWeightsTask(scheduling.Task):
         help='Output pairwise weights root directory.')
 
 @corgie_optgroup('Pairwise Normalize Weights: Method Specification')
-@corgie_option('--offsets',      nargs=1, type=str, required=True)
+@corgie_option('--radius',               nargs=1, type=int, required=True)
 @corgie_option('--chunk_xy',       '-c', nargs=1, type=int, default=1024)
 @corgie_option('--chunk_z',              nargs=1, type=int, default=1)
 @corgie_option('--pad',                  nargs=1, type=int, default=512)
 @corgie_option('--mip',                  nargs=1, type=int, default=0)
+@corgie_option('--identity_op',          nargs=1, type=str, default='zero')
 @corgie_option('--bump_sigma',           nargs=1, type=float, default=1)
 @corgie_optgroup('')
 @corgie_option('--crop',                 nargs=1, type=int, default=None)
@@ -208,7 +214,7 @@ class PairwiseNormalizeWeightsTask(scheduling.Task):
 def pairwise_normalize_weights(ctx, 
                        input_weights_dir,
                        output_weights_dir,
-                       offsets,
+                       radius,
                        pad, 
                        crop, 
                        chunk_xy, 
@@ -218,16 +224,20 @@ def pairwise_normalize_weights(ctx,
                        chunk_z, 
                        mip,
                        bump_sigma,
+                       identity_op,
                        suffix):
     """Convolve pairwise weights with a bump function & renormalize
     """
     scheduler = ctx.obj['scheduler']
 
     corgie_logger.debug("Setting up layers...")
-    offsets = [int(i) for i in offsets.split(',')]
     input_weights = PairwiseTensors(name='input_weights',
-                                        folder=input_weights_dir)
-    input_weights.add_offsets(offsets, 
+                                    folder=input_weights_dir)
+    offsets = range(-radius, radius+1)
+    input_offsets = offsets
+    if identity_op != 'load':
+        input_offsets = [o for o in offsets if o != 0]
+    input_weights.add_offsets(input_offsets, 
                               readonly=True, 
                               dtype='float32')
     output_weights = PairwiseTensors(name='output_weights',
@@ -252,7 +262,8 @@ def pairwise_normalize_weights(ctx,
             crop=crop,
             mip=mip,
             bcube=bcube,
-            bump_sigma=bump_sigma)
+            bump_sigma=bump_sigma,
+            identity_op=identity_op)
 
     # create scheduler and execute the job
     scheduler.register_job(normalize_pairwise_weights_job, 
