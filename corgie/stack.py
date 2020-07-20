@@ -84,16 +84,20 @@ class Stack(StackBase):
 
         if reference is None:
             reference = self.reference_layer
+
         path = os.path.join(self.folder, layer_type, f"{name}{suffix}")
         l = reference.backend.create_layer(path=path, layer_type=layer_type,
                 name=name, reference=reference, **kwargs)
         self.add_layer(l)
         return l
 
-    def read_data_dict(self, bcube, mip, translation_adjuster=None, stack_name=None, add_prefix=True):
+    def read_data_dict(self, bcube, mip, translation_adjuster=None, stack_name=None, add_prefix=True,
+            translation=None):
+
         data_dict = {}
-        field_layers = self.get_layers_of_type("field")
-        agg_field = None
+
+        if translation is None:
+            translation = helpers.Translation(0, 0)
 
         if stack_name is None:
             stack_name == self.name
@@ -103,12 +107,23 @@ class Stack(StackBase):
         else:
             name_prefix = f"{stack_name}_"
 
-        for l in field_layers:
+
+        agg_field = None
+        field_layers = self.get_layers_of_type("field")
+        # Assume that the last field is the final one
+        if len(field_layers) > 0:
+            l = field_layers[-1]
             global_name = "{}{}".format(name_prefix, l.name)
             this_field = l.read(bcube=bcube, mip=mip)
             data_dict[global_name] = this_field
             agg_field = this_field
-            '''if agg_field is None:
+
+        '''for l in field_layers:
+            global_name = "{}{}".format(name_prefix, l.name)
+            this_field = l.read(bcube=bcube, mip=mip)
+            data_dict[global_name] = this_field
+            agg_field = this_field
+            if agg_field is None:
                 agg_field = this_field
             else:
                 agg_field = this_field.field().from_pixels()(agg_field.field().from_pixels()).pixels()'''
@@ -117,19 +132,20 @@ class Stack(StackBase):
         data_dict[f"{name_prefix}agg_field"] = agg_field
 
         if translation_adjuster is not None:
-            translaiton = translation_adjuster(agg_field)
-        else:
-            translation = helpers.Translation(0, 0)
+            src_field_trans = translation_adjuster(agg_field)
+            translation += src_field_trans
 
+        #if translation.x != 0 or translation.y != 0:
+        #import pdb; pdb.set_trace()
         final_bcube = copy.deepcopy(bcube)
         final_bcube = final_bcube.translate(
-                x_offset=translation.x,
-                y_offset=translation.y)
+                x_offset=translation.y,
+                y_offset=translation.x,
+                mip=mip)
 
         for l in self.get_layers_of_type(["mask", "img"]):
             global_name = f"{name_prefix}{l.name}"
-            data_dict[global_name] = l.read(bcube=bcube, mip=mip)
-
+            data_dict[global_name] = l.read(bcube=final_bcube, mip=mip)
         return translation, data_dict
 
     def z_range(self):

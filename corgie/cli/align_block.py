@@ -61,7 +61,7 @@ class AlignBlockJob(scheduling.Job):
 
         align_field_layer = self.dst_stack.create_sublayer(f'align_field{self.suffix}',
                 layer_type='field', overwrite=True)
-        self.src_stack.add_layer(align_field_layer)
+        #self.src_stack.add_layer(align_field_layer)
 
         for z in range(z_start + z_step, z_end + z_step, z_step):
             tgt_bcube = src_bcube
@@ -82,7 +82,8 @@ class AlignBlockJob(scheduling.Job):
                     bcube=src_bcube,
                     seethrough=True,
                     blackout_masks=False,
-                    seethrough_offset=seethrough_offset
+                    seethrough_offset=seethrough_offset,
+                    additional_fields=[align_field_layer]
                     )
 
             yield from render_job.task_generator
@@ -123,7 +124,7 @@ class AlignBlockJob(scheduling.Job):
 @corgie_option('--processor_mip', '-m', nargs=1, type=int, required=True,
         multiple=True)
 @corgie_option('--copy_start/--no_copy_start',             default=True)
-@corgie_option('--mode', type=click.Choice(['forward', 'backword', 'bidirectional']),
+@corgie_option('--mode', type=click.Choice(['forward', 'backward', 'bidirectional']),
         default='forward')
 
 @corgie_optgroup('Data Region Specification')

@@ -140,9 +140,11 @@ class RenderTask(scheduling.Task):
 
                     coarsen_factor = int(2**(6 - self.mip))
                     seethrough_mask = helpers.coarsen_mask(warped_mask, coarsen_factor)
+                    seethrough_mask[cropped_out == 0] = True
 
                     cropped_out[seethrough_mask] = \
                             seethrough_data[seethrough_mask]
+
                     seenthru = (cropped_out[seethrough_mask] != 0).sum()
                     corgie_logger.debug(f"Seenthrough {seenthru} pixels")
 
