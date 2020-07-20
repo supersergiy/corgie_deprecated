@@ -1,3 +1,5 @@
-corgie>=0.0.7
+corgie
+cloud-volume
+artificery
 click
 sphinx-click
