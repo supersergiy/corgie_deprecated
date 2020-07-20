@@ -28,6 +28,7 @@ class Translation:
     y: float
 
 def percentile_trans_adjuster(field, h=25, l=75, unaligned_img=None):
+    return  Translation(x=0, y=0)
     if field is None:
         result = Translation(0, 0)
     else:

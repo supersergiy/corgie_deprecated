@@ -94,5 +94,6 @@ def create_stack_from_spec(spec_str_list, name, reference=None, readonly=False,
                 for s in spec_str_list]
         for l in layer_list:
             stack.add_layer(l)
+
     return stack
 

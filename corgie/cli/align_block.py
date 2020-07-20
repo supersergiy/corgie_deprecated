@@ -148,6 +148,7 @@ def align_block(ctx, src_layer_spec, tgt_layer_spec, dst_folder, render_pad, ren
     corgie_logger.debug("Setting up layers...")
     src_stack = create_stack_from_spec(src_layer_spec,
             name='src', readonly=True)
+    src_stack.folder = dst_folder
 
     tgt_stack = create_stack_from_spec(tgt_layer_spec,
             name='tgt', readonly=True, reference=src_stack)

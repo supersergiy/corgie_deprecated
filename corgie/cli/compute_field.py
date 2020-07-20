@@ -51,7 +51,7 @@ class ComputeFieldJob(scheduling.Job):
             if i == len(self.processor_spec) - 1:
                 proc_field_layer = self.dst_layer
             else:
-                proc_field_layer_name = f'align_field_stage_{i}'
+                proc_field_layer_name = f'align_field_stage_{i}{self.suffix}'
                 proc_field_layer = self.src_stack.create_sublayer(proc_field_layer_name,
                         layer_type='field', overwrite=True)
 
@@ -136,7 +136,7 @@ class ComputeFieldJob(scheduling.Job):
 
         for i in range(len(self.processor_spec) - 1):
             proc_field_layer_name = f'align_field_stage_{i}'
-            self.src_stack.remove_layer(proc_field_name)
+            self.src_stack.remove_layer(proc_field_layer_name)
 
 
 class ComputeFieldTask(scheduling.Task):
