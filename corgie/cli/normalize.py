@@ -95,7 +95,7 @@ class NormalizeTask(scheduling.Task):
 @corgie_option('--suffix',     '-s', nargs=1, type=str, default=None)
 
 @corgie_optgroup('Normalize parameters')
-@corgie_option('--recompute_stats/--no_recompute_stats',  default=False )
+@corgie_option('--recompute_stats/--no_recompute_stats',  default=True)
 @corgie_option('--stats_mip',  '-m', nargs=1, type=int, required=None)
 @corgie_option('--mip_start',  '-m', nargs=1, type=int, required=True)
 @corgie_option('--mip_end',    '-e', nargs=1, type=int, required=True)

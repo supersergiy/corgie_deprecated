@@ -12,6 +12,10 @@ class Binarizer:
             return tens != self.bin[1]
         elif self.bin[0] == 'eq':
             return tens == self.bin[1]
+        elif self.bin[0] == 'gt':
+            return tens > self.bin[1]
+        elif self.bin[0] == 'lt':
+            return tens < self.bin[1]
 
 class PartialSpecification:
     def __init__(self, f, **kwargs):

@@ -135,7 +135,7 @@ class ComputeFieldJob(scheduling.Job):
         # remove intermediary fields from the source stack
 
         for i in range(len(self.processor_spec) - 1):
-            proc_field_layer_name = f'align_field_stage_{i}'
+            proc_field_layer_name = f'align_field_stage_{i}{self.suffix}'
             self.src_stack.remove_layer(proc_field_layer_name)
 
 

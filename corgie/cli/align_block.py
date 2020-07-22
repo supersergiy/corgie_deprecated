@@ -71,6 +71,7 @@ class AlignBlockJob(scheduling.Job):
                     tgt_stack=self.dst_stack,
                     bcube=src_bcube,
                     tgt_z_offset=-z_step,
+                    suffix=self.suffix,
                     dst_layer=align_field_layer)
 
             yield from compute_field_job.task_generator
