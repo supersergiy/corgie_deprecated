@@ -117,7 +117,6 @@ class ImgLayer(VolumetricLayer):
 class SegmentationLayer(VolumetricLayer):
     def __init__(self, *args, num_channels=1, **kwargs):
         if num_channels != 1:
-            import pdb; pdb.set_trace()
             raise exceptions.ArgumentError("Segmentation layer 'num_channels'",
                     "Segmentation layer must have 1 channels. 'num_channels' provided: {}".format(
                         num_channels
@@ -150,7 +149,7 @@ class SegmentationLayer(VolumetricLayer):
         return 1
 
     def get_default_data_type(self):
-        return 'int32'
+        return 'uint64'
 
 
 @register_layer_type("field")

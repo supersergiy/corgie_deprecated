@@ -204,7 +204,6 @@ class CVImgLayer(CVLayerBase, layers.ImgLayer):
 @CVDataBackend.register_layer_type_backend("segmentation")
 class CVSegmentationLayer(CVLayerBase, layers.SegmentationLayer):
     def __init__(self, *kargs, **kwargs):
-        import pdb; pdb.set_trace()
         if 'graphene:' in kwargs['path']:
             kwargs['readonly'] = True
         super().__init__(*kargs, **kwargs)
