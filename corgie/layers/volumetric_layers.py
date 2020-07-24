@@ -112,6 +112,47 @@ class ImgLayer(VolumetricLayer):
     def get_default_data_type(self):
         return 'uint8'
 
+
+@register_layer_type("segmentation")
+class SegmentationLayer(VolumetricLayer):
+    def __init__(self, *args, num_channels=1, **kwargs):
+        if num_channels != 1:
+            import pdb; pdb.set_trace()
+            raise exceptions.ArgumentError("Segmentation layer 'num_channels'",
+                    "Segmentation layer must have 1 channels. 'num_channels' provided: {}".format(
+                        num_channels
+                        ))
+        super().__init__(*args, **kwargs)
+
+    def get_downsampler(self):
+        def downsampler(data_tens):
+            downs_data = torch.nn.functional.interpolate(data_tens.float(),
+                                mode='nearest',
+                                scale_factor=1/2,
+                                align_corners=False,
+                    recompute_scale_factor=False)
+            return downs_data
+
+        return downsampler
+
+    def get_upsampler(self):
+        def upsampler(data_tens):
+            ups_data = torch.nn.functional.interpolate(data_tens.float(),
+                                mode='nearest',
+                                scale_factor=2.0,
+                                align_corners=False,
+                    recompute_scale_factor=False)
+            return ups_data
+
+        return upsampler
+
+    def get_num_channels(self, *args, **kwargs):
+        return 1
+
+    def get_default_data_type(self):
+        return 'int32'
+
+
 @register_layer_type("field")
 class FieldLayer(VolumetricLayer):
     def __init__(self, *args, num_channels=2, **kwargs):

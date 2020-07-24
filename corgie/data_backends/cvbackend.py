@@ -201,6 +201,15 @@ class CVImgLayer(CVLayerBase, layers.ImgLayer):
         super().__init__(*kargs, **kwargs)
 
 
+@CVDataBackend.register_layer_type_backend("segmentation")
+class CVSegmentationLayer(CVLayerBase, layers.SegmentationLayer):
+    def __init__(self, *kargs, **kwargs):
+        import pdb; pdb.set_trace()
+        if 'graphene:' in kwargs['path']:
+            kwargs['readonly'] = True
+        super().__init__(*kargs, **kwargs)
+
+
 @CVDataBackend.register_layer_type_backend("field")
 class CVFieldLayer(CVLayerBase, layers.FieldLayer):
     supported_backend_dtypes = ['float32', 'int16']

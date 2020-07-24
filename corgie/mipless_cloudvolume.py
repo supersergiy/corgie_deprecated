@@ -56,6 +56,7 @@ class MiplessCloudVolume():
         self.cv_params['non_aligned_writes'] = False
         self.cv_params['cdn_cache'] = False
         self.cv_params['fill_missing'] = True
+        self.cv_params['agglomerate'] = True
 
         for k, v in six.iteritems(kwargs):
             self.cv_params[k] = v
@@ -64,6 +65,8 @@ class MiplessCloudVolume():
 
         self.obj = obj
         self.cvs = {}
+
+        import pdb; pdb.set_trace()
         if 'info' in self.cv_params and overwrite:
             self.store_info()
 
