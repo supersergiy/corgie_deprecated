@@ -66,7 +66,6 @@ class MiplessCloudVolume():
         self.obj = obj
         self.cvs = {}
 
-        import pdb; pdb.set_trace()
         if 'info' in self.cv_params and overwrite:
             self.store_info()
 
