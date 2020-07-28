@@ -179,10 +179,12 @@ class RenderTask(scheduling.Task):
 @corgie_option('--end_coord',        nargs=1, type=str, required=True)
 @corgie_option('--coord_mip',        nargs=1, type=int, default=0)
 
+@click.option('--suffix',            nargs=1, type=str,  default=None)
+
 @click.pass_context
 def render(ctx, src_layer_spec, dst_folder, pad, render_masks, blackout_masks,
          seethrough, chunk_xy, chunk_z, start_coord, end_coord, mips,
-         coord_mip, force_chunk_xy, force_chunk_z):
+         coord_mip, force_chunk_xy, force_chunk_z, suffix):
     scheduler = ctx.obj['scheduler']
 
     corgie_logger.debug("Setting up layers...")
@@ -201,7 +203,8 @@ def render(ctx, src_layer_spec, dst_folder, pad, render_masks, blackout_masks,
 
     dst_stack = stack.create_stack_from_reference(reference_stack=src_stack,
             folder=dst_folder, name="dst", types=["img", "mask"],
-            force_chunk_xy=force_chunk_xy, force_chunk_z=force_chunk_z, overwrite=True)
+            force_chunk_xy=force_chunk_xy, force_chunk_z=force_chunk_z,
+            suffix=suffix, overwrite=True)
 
     bcube = get_bcube_from_coords(start_coord, end_coord, coord_mip)
 

@@ -212,7 +212,6 @@ class ComputeFieldTask(scheduling.Task):
 @corgie_option('--blend_xy',             nargs=1, type=int, default=0)
 @corgie_option('--pad',                  nargs=1, type=int, default=512,
         )
-@corgie_optgroup('')
 @corgie_option('--crop',                 nargs=1, type=int, default=None)
 @corgie_option('--processor_spec',       nargs=1, type=str, multiple=True,
         required=True)

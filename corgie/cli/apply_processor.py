@@ -142,13 +142,12 @@ class ApplyProcessorTask(scheduling.Task):
 
 @corgie_option('--reference_key',        nargs=1, type=str, default='img')
 
-@corgie_optgroup('Compute Field Method Specification')
+@corgie_optgroup('Apply Processor Method Specification')
 @corgie_option('--chunk_xy',       '-c', nargs=1, type=int, default=1024)
 @corgie_option('--chunk_z',              nargs=1, type=int, default=1)
 @corgie_option('--blend_xy',             nargs=1, type=int, default=0)
 @corgie_option('--pad',                  nargs=1, type=int, default=512,
         )
-@corgie_optgroup('')
 @corgie_option('--crop',                 nargs=1, type=int, default=None)
 @corgie_option('--processor_spec',       nargs=1, type=str, multiple=True,
         required=True)

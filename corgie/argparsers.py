@@ -63,7 +63,8 @@ def create_layer_from_spec(spec_str, reference=None, caller_name=None,
         ))
 
     if allowed_types is not None and layer_type not in allowed_types:
-        raise exceptions.ArgumentError(arg_spec, 'must be of type in {allowed_types}')
+        raise exceptions.ArgumentError("layer_type",
+                f'must be of type in {allowed_types}')
 
     backend = str_to_backend(data_backend)()
 
