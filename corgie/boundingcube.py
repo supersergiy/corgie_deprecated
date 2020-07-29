@@ -128,6 +128,17 @@ class BoundingCube:
     def z_size(self):
         return int(self.z[1] - self.z[0])
 
+    def minpt(self, mip=0):
+        return np.array([self.x_range(mip)[0], self.y_range(mip)[0], self.z_range()[0]])
+
+    def maxpt(self, mip=0):
+        return np.array([self.x_range(mip)[1], self.y_range(mip)[1], self.z_range()[1]])
+
+    def to_filename(self, mip=0):
+        minpt = self.minpt(mip)
+        maxpt = self.maxpt(mip)
+        return '_'.join((str(minpt[i]) + '-' + str(maxpt[i]) for i in range(3)))
+
     @property
     def size(self, mip=0):
         return self.x_size(mip=mip), self.y_size(mip=mip), self.z_size()
