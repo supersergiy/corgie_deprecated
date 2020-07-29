@@ -123,6 +123,9 @@ class SegmentationLayer(VolumetricLayer):
                         ))
         super().__init__(*args, **kwargs)
 
+    def read(self, dtype=None, **kwargs):
+        return self.read_backend(transpose=False, **kwargs).squeeze()
+
     def get_downsampler(self):
         def downsampler(data_tens):
             downs_data = torch.nn.functional.interpolate(data_tens.float(),

@@ -22,6 +22,8 @@ from corgie.cli.apply_processor import apply_processor
 COMMAND_LIST.append(apply_processor)
 from corgie.cli.invert_field import invert_field
 COMMAND_LIST.append(invert_field)
+from corgie.cli.create_skeletons import create_skeletons
+COMMAND_LIST.append(create_skeletons)
 
 # To add new commands, create a file in this folder implementing a command,
 # import the command here and add it to the list:
