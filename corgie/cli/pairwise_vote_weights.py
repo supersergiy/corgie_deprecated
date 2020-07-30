@@ -55,7 +55,9 @@ class PairwiseVoteWeightsJob(scheduling.Job):
                                     mip=self.mip,
                                     pad=self.pad,
                                     crop=self.crop,
-                                    bcube=chunk) for chunk in chunks]
+                                    bcube=chunk,
+                                    softmin_temp=self.softmin_temp,
+                                    blur_sigma=self.blur_sigma) for chunk in chunks]
 
         corgie_logger.debug("Yielding PairwiseVoteWeightsTasks for bcube: {}, MIP: {}".format(
                                 self.bcube, self.mip))
