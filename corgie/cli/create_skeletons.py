@@ -36,6 +36,7 @@ class SkeletonJob(scheduling.Job):
         fix_avocados=False,
         dust_threshold=0,
         tick_threshold=1000,
+        single_merge_mode=True,
     ):
         self.seg_layer = seg_layer
         self.dst_path = dst_path
@@ -51,6 +52,7 @@ class SkeletonJob(scheduling.Job):
         self.fix_avocados = fix_avocados
         self.dust_threshold = dust_threshold
         self.tick_threshold = tick_threshold
+        self.single_merge_mode = single_merge_mode
         super().__init__()
 
     def task_generator(self):
@@ -82,9 +84,24 @@ class SkeletonJob(scheduling.Job):
         )
         yield tasks
         yield scheduling.wait_until_done
-        yield [MergeSkeletonTask(
-            self.dst_path, self.mip, self.dust_threshold, self.tick_threshold
-        )]
+        if self.single_merge_mode:
+            merge_tasks = [
+                MergeSkeletonTask(
+                    self.dst_path,
+                    self.mip,
+                    self.dust_threshold,
+                    self.tick_threshold,
+                    str(object_id),
+                )
+                for object_id in self.object_ids
+            ]
+            yield merge_tasks
+        else:
+            yield [
+                MergeSkeletonTask(
+                    self.dst_path, self.mip, self.dust_threshold, self.tick_threshold
+                )
+            ]
 
 
 class SkeletonTask(scheduling.Task):
@@ -152,28 +169,30 @@ class SkeletonTask(scheduling.Task):
 
 
 class MergeSkeletonTask(scheduling.Task):
-    def __init__(self, dst_path, mip, dust_threshold, tick_threshold):
+    def __init__(self, dst_path, mip, dust_threshold, tick_threshold, prefix=""):
         super().__init__(self)
         self.dst_path = dst_path
         self.cf = CloudFiles(self.dst_path)
         self.mip = mip
         self.dust_threshold = dust_threshold
         self.tick_threshold = tick_threshold
+        self.prefix = prefix
 
     def execute(self):
         corgie_logger.info(f"Merging skeletons at {self.dst_path}")
-        fragment_filenames = self.cf.list(flat=True)
+        fragment_filenames = self.cf.list(prefix=self.prefix, flat=True)
         skeleton_files = self.cf.get(fragment_filenames)
         skeletons = defaultdict(list)
         for skeleton_file in skeleton_files:
-            colon_index = skeleton_file["path"].index(":")
-            if colon_index == -1:
+            try:
+                colon_index = skeleton_file["path"].index(":")
+            except ValueError:
+                # File is full skeleton, not fragment
                 continue
             seg_id = skeleton_file["path"][0:colon_index]
             skeleton_fragment = pickle.loads(skeleton_file["content"])
             if not skeleton_fragment.empty():
                 skeletons[seg_id].append(skeleton_fragment)
-        files_to_put = []
         for seg_id, skeleton_fragments in skeletons.items():
             skeleton = PrecomputedSkeleton.simple_merge(
                 skeleton_fragments
@@ -182,30 +201,15 @@ class MergeSkeletonTask(scheduling.Task):
                 skeleton, self.dust_threshold, self.tick_threshold
             )
             skeleton.id = int(seg_id)
-            files_to_put.append((seg_id, skeleton.to_precomputed()))
-        self.cf.puts(files_to_put, compress="gzip")
-
-
-# @corgie_option('--dst_layer_spec', '-t', nargs=1,
-#         type=str, required=True, multiple=True,
-#         help='Target layer spec. Use multiple times to include all masks, fields, images. \n'\
-#                 'DEFAULT: Same as source layers')
-# @corgie_option('--vector_field_layer_spec',  '-s', nargs=1,
-#         type=str, required=True, multiple=True,
-#         help='Source layer spec. Use multiple times to include all masks, fields, images. ' + \
-#                 LAYER_HELP_STR)
-# @corgie_option('--dst_unaligned_skel_layer_spec', '-t', nargs=1,
-#         type=str, required=False, multiple=True,
-#         help='Target layer spec. Use multiple times to include all masks, fields, images. \n'\
-#                 'DEFAULT: Same as source layers')
+            self.cf.put(path=seg_id, content=skeleton.to_precomputed(), compress="gzip")
+            corgie_logger.info(f"Finished skeleton {seg_id}")
 
 
 @click.command()
-# Layers
 @corgie_optgroup("Layer Parameters")
 @corgie_option(
     "--seg_layer_spec",
-    "-s",
+    "--s",
     nargs=1,
     type=str,
     required=True,
@@ -227,7 +231,7 @@ class MergeSkeletonTask(scheduling.Task):
     help="UNIX timestamp that specifies which segmentation to use. Only relevant for graphene segmentations",
 )
 @corgie_optgroup("Skeletonization Parameters")
-@corgie_option("--mip", nargs=1, type=int, default=2)
+@corgie_option("--mip", nargs=1, type=int, required=True)
 @corgie_option("--teasar_scale", nargs=1, type=int, default=10)
 @corgie_option("--teasar_const", nargs=1, type=int, default=10)
 @corgie_option("--ids", multiple=True, type=int, help="Segmentation ids to skeletonize")
@@ -236,7 +240,14 @@ class MergeSkeletonTask(scheduling.Task):
 )
 @corgie_option("--tick_threshold", nargs=1, type=int, default=1000)
 @corgie_option("--chunk_xy", nargs=1, type=int, default=256)
-@corgie_option("--chunk_z", nargs=1, type=int, default=512)
+@corgie_option("--chunk_z", nargs=1, type=int, default=256)
+@corgie_option(
+    "--single_merge_mode",
+    nargs=1,
+    type=bool,
+    default=True,
+    help="Set to True to have 1 skeleton merge=1 task",
+)
 @corgie_optgroup("Data Region Specification")
 @corgie_option("--start_coord", nargs=1, type=str, required=True)
 @corgie_option("--end_coord", nargs=1, type=str, required=True)
@@ -255,6 +266,7 @@ def create_skeletons(
     tick_threshold,
     chunk_xy,
     chunk_z,
+    single_merge_mode,
     start_coord,
     end_coord,
     coord_mip,
@@ -275,6 +287,7 @@ def create_skeletons(
                 line = f.readline()
     if object_ids is None or len(object_ids) == 0:
         raise ValueError("Must specify ids to skeletonize")
+    object_ids = list(object_ids)
     teasar_params = {"scale": teasar_scale, "const": teasar_const}
 
     seg_layer = seg_stack.get_layers_of_type("segmentation")[0]
@@ -289,6 +302,7 @@ def create_skeletons(
         teasar_params=teasar_params,
         object_ids=object_ids,
         tick_threshold=tick_threshold,
+        single_merge_mode=single_merge_mode,
     )
 
     scheduler.register_job(skeleton_job, job_name="Skeletonize {}".format(bcube))

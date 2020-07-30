@@ -141,6 +141,9 @@ class CVLayerBase(BaseLayerBackend):
     def get_info(self):
         return self.cv.get_info()
 
+    def resolution(self, mip):
+        return self.cv[mip].resolution
+
     def get_chunk_aligned_bcube(self, bcube, mip, chunk_xy, chunk_z):
         cv_chunk = self.cv[mip].chunk_size
 

@@ -17,6 +17,20 @@ def get_bcube_from_coords(start_coord, end_coord, coord_mip,
 
     return bcube
 
+def get_bcube_from_vertices(vertices, resolution, mip, cant_be_empty=True):
+    bcube_args = []
+    for dim in range(3):
+        dim_min = min(vertices[:,dim]) / resolution[dim]
+        dim_max = max(vertices[:,dim]) / resolution[dim] + 1
+        bcube_args.append(dim_min)
+        bcube_args.append(dim_max)
+    bcube = BoundingCube(*bcube_args, mip)
+    if cant_be_empty and bcube.area() * bcube.z_size() == 0:
+        raise Exception("Attempted creation of an empty bounding "
+                "when 'cant_be_empty' flag is set to True")
+
+    return bcube
+
 class BoundingCube:
     def __init__(self, xs, xe, ys, ye, zs, ze, mip):
         self.m0_x = (None, None)
