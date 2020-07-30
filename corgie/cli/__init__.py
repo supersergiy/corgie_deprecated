@@ -28,6 +28,12 @@ from corgie.cli.pairwise_compose_pairs import pairwise_compose_pairs
 COMMAND_LIST.append(pairwise_compose_pairs)
 from corgie.cli.pairwise_vote_weights import pairwise_vote_weights 
 COMMAND_LIST.append(pairwise_vote_weights)
+from corgie.cli.pairwise_median import pairwise_median 
+COMMAND_LIST.append(pairwise_median)
+from corgie.cli.pairwise_normalize import pairwise_normalize 
+COMMAND_LIST.append(pairwise_normalize)
+from corgie.cli.pairwise_vote_field import pairwise_vote_field 
+COMMAND_LIST.append(pairwise_vote_field)
 
 # To add new commands, create a file in this folder implementing a command,
 # import the command here and add it to the list:
