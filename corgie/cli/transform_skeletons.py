@@ -23,16 +23,16 @@ def get_skeleton(src_path, skeleton_id_str):
 
 class GenerateNewSkeletonTask(scheduling.Task):
     def __init__(
-        self, skeleton_id_str, src_path, dst_path, task_vertex_size, vertex_sort=None
+        self, skeleton_id_str, src_path, dst_path, task_vertex_size, vertex_sort=False
     ):
         self.skeleton = get_skeleton(src_path, skeleton_id_str)
         self.dst_path = dst_path
         self.skeleton_id_str = skeleton_id_str
         self.task_vertex_size = task_vertex_size
-        if vertex_sort is None:
-            self.vertex_sort = np.arange(0, len(self.skeleton.vertices))
+        if vertex_sort:
+            self.vertex_sort = self.skeleton.vertices[:, 2].argsort()
         else:
-            self.vertex_sort = vertex_sort
+            self.vertex_sort = np.arange(0, len(self.skeleton.vertices))
         super().__init__()
 
     def execute(self):
@@ -87,7 +87,7 @@ class TransformSkeletonVerticesTask(scheduling.Task):
         field_mip,
         start_vertex_index,
         end_vertex_index,
-        vertex_sort=None,
+        vertex_sort=False,
     ):
         self.vector_field_layer = vector_field_layer
         self.skeleton_id_str = skeleton_id_str
@@ -96,10 +96,10 @@ class TransformSkeletonVerticesTask(scheduling.Task):
         self.field_mip = field_mip
         self.start_vertex_index = start_vertex_index
         self.end_vertex_index = end_vertex_index
-        if vertex_sort is None:
-            self.vertex_sort = np.arange(0, len(self.skeleton.vertices))
+        if vertex_sort:
+            self.vertex_sort = self.skeleton.vertices[:, 2].argsort()
         else:
-            self.vertex_sort = vertex_sort
+            self.vertex_sort = np.arange(0, len(self.skeleton.vertices))
         super().__init__()
 
     def execute(self):
@@ -192,7 +192,6 @@ class TransformSkeletonsJob(scheduling.Job):
             number_vertices = len(skeleton.vertices)
             # Vector field chunks are typically chunked by 1 in z, so we process
             # the skeleton's vertices in z-order for maximum download efficiency.
-            z_sort = skeleton.vertices[:, 2].argsort()
             index_points = list(range(0, number_vertices, self.task_vertex_size))
             for i in range(len(index_points)):
                 start_vertex_index = index_points[i]
@@ -209,7 +208,7 @@ class TransformSkeletonsJob(scheduling.Job):
                         field_mip=self.field_mip,
                         start_vertex_index=start_vertex_index,
                         end_vertex_index=end_vertex_index,
-                        vertex_sort=z_sort,
+                        vertex_sort=True,
                     )
                 )
             generate_new_skeleton_tasks.append(
@@ -218,7 +217,7 @@ class TransformSkeletonsJob(scheduling.Job):
                     src_path=self.src_path,
                     dst_path=self.dst_path,
                     task_vertex_size=self.task_vertex_size,
-                    vertex_sort=z_sort,
+                    vertex_sort=True,
                 )
             )
         corgie_logger.info(
