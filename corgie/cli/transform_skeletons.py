@@ -16,41 +16,21 @@ from corgie.argparsers import (
 )
 
 
-class CalculateSkeletonLengthsTask(scheduling.Task):
-    def __init__(self, original_skeletons, new_skeletons, skeleton_length_file):
-        self.original_skeletons = original_skeletons
-        self.new_skeletons = new_skeletons
-        self.skeleton_length_file = skeleton_length_file
-        super().__init__()
-
-    def execute(self):
-        with open(self.skeleton_length_file, 'w') as f:
-            f.write('Skeleton id, Original Skeleton Length (nm), New Skeleton Length (nm)\n')
-            for skeleton_id_str in self.original_skeletons:
-                original_skeleton = self.original_skeletons[skeleton_id_str]
-                new_skeleton = self.new_skeletons[skeleton_id_str]
-                f.write(f'{skeleton_id_str},{int(original_skeleton.cable_length())},{int(new_skeleton.cable_length())}\n')
-
-
-class DeleteIntermediaryVerticesTask(scheduling.Task):
-    def __init__(self, dst_path):
-        self.dst_path = dst_path
-
-    def execute(self):
-        # TODO: Implement
-        pass
+def get_skeleton(src_path, skeleton_id_str):
+    cf = CloudFiles(src_path)
+    return Skeleton.from_precomputed(cf.get(skeleton_id_str))
 
 
 class GenerateNewSkeletonTask(scheduling.Task):
     def __init__(
-        self, skeleton_id_str, skeleton, dst_path, task_vertex_size, vertex_sort=None
+        self, skeleton_id_str, src_path, dst_path, task_vertex_size, vertex_sort=None
     ):
+        self.skeleton = get_skeleton(src_path, skeleton_id_str)
         self.dst_path = dst_path
         self.skeleton_id_str = skeleton_id_str
-        self.skeleton = skeleton
         self.task_vertex_size = task_vertex_size
         if vertex_sort is None:
-            self.vertex_sort = np.arange(0, len(skeleton.vertices))
+            self.vertex_sort = np.arange(0, len(self.skeleton.vertices))
         else:
             self.vertex_sort = vertex_sort
         super().__init__()
@@ -101,8 +81,8 @@ class TransformSkeletonVerticesTask(scheduling.Task):
     def __init__(
         self,
         vector_field_layer,
+        src_path,
         skeleton_id_str,
-        skeleton,
         dst_path,
         field_mip,
         start_vertex_index,
@@ -111,13 +91,13 @@ class TransformSkeletonVerticesTask(scheduling.Task):
     ):
         self.vector_field_layer = vector_field_layer
         self.skeleton_id_str = skeleton_id_str
-        self.skeleton = skeleton
+        self.skeleton = get_skeleton(src_path, skeleton_id_str)
         self.dst_path = dst_path
         self.field_mip = field_mip
         self.start_vertex_index = start_vertex_index
         self.end_vertex_index = end_vertex_index
         if vertex_sort is None:
-            self.vertex_sort = np.arange(0, len(skeleton.vertices))
+            self.vertex_sort = np.arange(0, len(self.skeleton.vertices))
         else:
             self.vertex_sort = vertex_sort
         super().__init__()
@@ -224,7 +204,7 @@ class TransformSkeletonsJob(scheduling.Job):
                     TransformSkeletonVerticesTask(
                         vector_field_layer=self.vector_field_layer,
                         skeleton_id_str=skeleton_id_str,
-                        skeleton=skeleton,
+                        src_path=self.src_path,
                         dst_path=self.dst_path,
                         field_mip=self.field_mip,
                         start_vertex_index=start_vertex_index,
@@ -235,7 +215,7 @@ class TransformSkeletonsJob(scheduling.Job):
             generate_new_skeleton_tasks.append(
                 GenerateNewSkeletonTask(
                     skeleton_id_str=skeleton_id_str,
-                    skeleton=skeleton,
+                    src_path=self.src_path,
                     dst_path=self.dst_path,
                     task_vertex_size=self.task_vertex_size,
                     vertex_sort=z_sort,
@@ -249,20 +229,19 @@ class TransformSkeletonsJob(scheduling.Job):
         corgie_logger.info(f"Generating skeletons to {self.dst_path}")
         yield generate_new_skeleton_tasks
         yield scheduling.wait_until_done
-        yield [DeleteIntermediaryVerticesTask(dst_path=self.dst_path)]
+        # TODO: Delete intermediary vertex files
 
         if self.skeleton_length_file is not None:
             new_skeletons = self.get_skeletons(self.dst_path)
             corgie_logger.info(
                 f"Calculating skeleton lengths to {self.skeleton_length_file}"
             )
-            yield [
-                CalculateSkeletonLengthsTask(
-                    original_skeletons=skeletons,
-                    new_skeletons=new_skeletons,
-                    skeleton_length_file=self.skeleton_length_file,
-                )
-            ]
+            with open(self.skeleton_length_file, 'w') as f:
+                f.write('Skeleton id, Original Skeleton Length (nm), New Skeleton Length (nm)\n')
+                for skeleton_id_str in skeletons:
+                    original_skeleton = skeletons[skeleton_id_str]
+                    new_skeleton = new_skeletons[skeleton_id_str]
+                    f.write(f'{skeleton_id_str},{int(original_skeleton.cable_length())},{int(new_skeleton.cable_length())}\n')
 
     def get_skeletons(self, folder):
         skeleton_filenames = [str(skeleton_id) for skeleton_id in self.skeleton_ids]
