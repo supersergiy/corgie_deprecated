@@ -1,18 +1,15 @@
 import click
 from cloudfiles import CloudFiles
 from cloudvolume import PrecomputedSkeleton, Skeleton
-from collections import defaultdict
-from copy import deepcopy
-import kimimaro
 import numpy as np
+import os
 import pickle
 
-from corgie import scheduling, argparsers, helpers, stack
+from corgie import scheduling, argparsers, stack
 from corgie.log import logger as corgie_logger
 from corgie.boundingcube import get_bcube_from_vertices
 from corgie.argparsers import (
     LAYER_HELP_STR,
-    create_layer_from_spec,
     corgie_optgroup,
     corgie_option,
     create_stack_from_spec,
@@ -27,7 +24,12 @@ class CalculateSkeletonLengthsTask(scheduling.Task):
         super().__init__()
 
     def execute(self):
-        pass
+        with open(self.skeleton_length_file, 'w') as f:
+            f.write('Skeleton id, Original Skeleton Length (nm), New Skeleton Length (nm)\n')
+            for skeleton_id_str in self.original_skeletons:
+                original_skeleton = self.original_skeletons[skeleton_id_str]
+                new_skeleton = self.new_skeletons[skeleton_id_str]
+                f.write(f'{skeleton_id_str},{int(original_skeleton.cable_length())},{int(new_skeleton.cable_length())}\n')
 
 
 class DeleteIntermediaryVerticesTask(scheduling.Task):
@@ -35,6 +37,7 @@ class DeleteIntermediaryVerticesTask(scheduling.Task):
         self.dst_path = dst_path
 
     def execute(self):
+        # TODO: Implement
         pass
 
 
@@ -241,8 +244,8 @@ class TransformSkeletonsJob(scheduling.Job):
         corgie_logger.info(
             f"Yielding transform skeleton vertex tasks for skeletons in {self.src_path}"
         )
-        # yield transform_vertex_tasks
-        # yield scheduling.wait_until_done
+        yield transform_vertex_tasks
+        yield scheduling.wait_until_done
         corgie_logger.info(f"Generating skeletons to {self.dst_path}")
         yield generate_new_skeleton_tasks
         yield scheduling.wait_until_done
@@ -359,7 +362,8 @@ def transform_skeletons(
     skeleton_length_file = None
     if calculate_skeleton_lengths:
         import time
-
+        if not os.path.exists("skeleton_lengths"):
+            os.makedirs("skeleton_lengths")
         skeleton_length_file = f"skeleton_lengths/skeleton_lengths_{int(time.time())}"
 
     vf_layer = vf_stack.get_layers_of_type("field")[0]
