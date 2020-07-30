@@ -125,7 +125,7 @@ class PairwiseNormalizeWeightsTask(scheduling.Task):
             bump_sigma (float): std of bump function used to reweight voting weights 
             identity_op (str): set weights of identity field f_{z+0 \rightarrow z} to:
                 zero: all weights will be zero
-                fill: all weights will be the maximum of their neighbors
+                max: all weights will be the maximum of their neighbors
                 load: weights will be loaded from input_weights
         """
         super().__init__()
@@ -151,25 +151,23 @@ class PairwiseNormalizeWeightsTask(scheduling.Task):
                                           bcube=self.bcube, 
                                           mip=self.mip)
             weights_list.append(wts)
+        weights = torch.cat(weights_list)
 
         if self.identity_op != 'load':
             # identify where 0 offset should be
             m = len(weights_list)-1
             while (m > 0) and (offsets[m] > 0):
                 m -= 1
-            zero_weights = torch.zeros_like(weights_list[0])
-            if self.identity_op == 'fill':
+            identity_weights = torch.zeros_like(weights_list[0])
+            if self.identity_op == 'max':
                 # fill 0 offset with max weight of other offsets
-                maxwt = max([torch.max(wt) for wt in weights_list])
-                if maxwt == 0:
-                    maxwt = 1
-                zero_weights = torch.full_like(weights_list[0], maxwt)
+                identity_weights, _ = torch.max(weights, 0, True) # dim=0, keep_dim=True
             weights_list = [*weights_list[:m+1], 
-                            zero_weights, 
+                            identity_weights, 
                             *weights_list[m+1:]]
             offsets = [*offsets[:m+1], 0, *offsets[m+1:]]
+            weights = torch.cat(weights_list)
 
-        weights = torch.cat(weights_list)
         normed_weights = normalize_weights(weights, 
                                            sigma=self.bump_sigma, 
                                            device=device)
