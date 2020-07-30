@@ -25,18 +25,21 @@ class GenerateNewSkeletonTask(scheduling.Task):
     def __init__(
         self, skeleton_id_str, src_path, dst_path, task_vertex_size, vertex_sort=False
     ):
-        self.skeleton = get_skeleton(src_path, skeleton_id_str)
+        # self.skeleton = get_skeleton(src_path, skeleton_id_str)
+        self.src_path = src_path
         self.dst_path = dst_path
         self.skeleton_id_str = skeleton_id_str
         self.task_vertex_size = task_vertex_size
-        if vertex_sort:
-            self.vertex_sort = self.skeleton.vertices[:, 2].argsort()
-        else:
-            self.vertex_sort = np.arange(0, len(self.skeleton.vertices))
+        self.vertex_sort = vertex_sort
         super().__init__()
 
     def execute(self):
-        number_vertices = len(self.skeleton.vertices)
+        skeleton = get_skeleton(self.src_path, self.skeleton_id_str)
+        if self.vertex_sort:
+            vertex_sort = skeleton.vertices[:, 2].argsort()
+        else:
+            vertex_sort = np.arange(0, len(skeleton.vertices))
+        number_vertices = len(skeleton.vertices)
         index_points = list(range(0, number_vertices, self.task_vertex_size))
         cf = CloudFiles(f"{self.dst_path}")
         array_filenames = []
@@ -59,9 +62,8 @@ class GenerateNewSkeletonTask(scheduling.Task):
             array_arrays.append(array_dict[array_filename])
         array_arrays = np.concatenate(array_arrays)
         # Restore the correct order of the vertices
-        restore_sort = self.vertex_sort.argsort()
+        restore_sort = vertex_sort.argsort()
         new_vertices = array_arrays[restore_sort]
-        skeleton = self.skeleton
         new_skeleton = Skeleton(
             vertices=new_vertices,
             edges=skeleton.edges,
@@ -92,7 +94,6 @@ class TransformSkeletonVerticesTask(scheduling.Task):
         self.vector_field_layer = vector_field_layer
         self.skeleton_id_str = skeleton_id_str
         self.src_path = src_path
-        # self.skeleton = get_skeleton(src_path, skeleton_id_str)
         self.dst_path = dst_path
         self.field_mip = field_mip
         self.start_vertex_index = start_vertex_index
@@ -103,12 +104,12 @@ class TransformSkeletonVerticesTask(scheduling.Task):
     def execute(self):
         skeleton = get_skeleton(self.src_path, self.skeleton_id_str)
         if self.vertex_sort:
-            vertex_sort = self.skeleton.vertices[:, 2].argsort()
+            vertex_sort = skeleton.vertices[:, 2].argsort()
         else:
-            vertex_sort = np.arange(0, len(self.skeleton.vertices))
+            vertex_sort = np.arange(0, len(skeleton.vertices))
         # How many vertices we will use at once to get a bcube to download from the vector field
         vertex_process_size = 50
-        vertices_to_transform = self.skeleton.vertices[
+        vertices_to_transform = skeleton.vertices[
             vertex_sort[self.start_vertex_index : self.end_vertex_index]
         ]
         index_vertices = list(range(0, self.number_vertices, vertex_process_size))
@@ -238,12 +239,16 @@ class TransformSkeletonsJob(scheduling.Job):
             corgie_logger.info(
                 f"Calculating skeleton lengths to {self.skeleton_length_file}"
             )
-            with open(self.skeleton_length_file, 'w') as f:
-                f.write('Skeleton id, Original Skeleton Length (nm), New Skeleton Length (nm)\n')
+            with open(self.skeleton_length_file, "w") as f:
+                f.write(
+                    "Skeleton id, Original Skeleton Length (nm), New Skeleton Length (nm)\n"
+                )
                 for skeleton_id_str in skeletons:
                     original_skeleton = skeletons[skeleton_id_str]
                     new_skeleton = new_skeletons[skeleton_id_str]
-                    f.write(f'{skeleton_id_str},{int(original_skeleton.cable_length())},{int(new_skeleton.cable_length())}\n')
+                    f.write(
+                        f"{skeleton_id_str},{int(original_skeleton.cable_length())},{int(new_skeleton.cable_length())}\n"
+                    )
 
     def get_skeletons(self, folder):
         skeleton_filenames = [str(skeleton_id) for skeleton_id in self.skeleton_ids]
@@ -343,6 +348,7 @@ def transform_skeletons(
     skeleton_length_file = None
     if calculate_skeleton_lengths:
         import time
+
         if not os.path.exists("skeleton_lengths"):
             os.makedirs("skeleton_lengths")
         skeleton_length_file = f"skeleton_lengths/skeleton_lengths_{int(time.time())}"
