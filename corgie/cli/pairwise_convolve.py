@@ -1,5 +1,7 @@
 import click
 import procspec
+import os
+import shutil
 from copy import deepcopy
 import numpy as np
 import torch
@@ -175,6 +177,7 @@ def pairwise_convolve(ctx,
     scheduler = ctx.obj['scheduler']
 
     corgie_logger.debug("Setting up layers...")
+    ref_path = 'file:///tmp/cloudvolume/empty_fields' 
     offsets = [int(i) for i in offsets.split(',')]
     nonzero_offsets = [o for o in offsets if o != 0]
     pairwise_weights = PairwiseTensors(name='weights',
@@ -193,16 +196,21 @@ def pairwise_convolve(ctx,
                                            readonly=False, 
                                            reference=pairwise_fields, 
                                            overwrite=True)
+    # add previous_fields at offset=0 in pairwise_fields for easy composing
     if previous_fields_spec is None:
-        previous_fields = deepcopy(output_fields)
+        ref = deepcopy(pairwise_fields.reference_layer.cv)
+        ref.path = ref_path 
+        pairwise_fields.add_offset(offset=0, 
+                                   suffix=suffix,
+                                   readonly=True,
+                                   reference=ref)
     else:
         previous_fields = create_layer_from_spec(previous_fields_spec, 
                                                  default_type='field', 
                                                  readonly=True, 
                                                  overwrite=False)
-    # add previous_fields at offset=0 in pairwise_fields for easy composing
-    previous_fields.name = 0
-    pairwise_fields.add_layer(previous_fields)
+        previous_fields.name = 0
+        pairwise_fields.add_layer(previous_fields)
 
     bcube = get_bcube_from_coords(start_coord, end_coord, coord_mip)
 
@@ -224,3 +232,8 @@ def pairwise_convolve(ctx,
     scheduler.register_job(pairwise_dot_product_job,
             job_name="Pairwise sum job{}".format(bcube))
     scheduler.execute_until_completion()
+
+    # remove ref path
+    if previous_fields_spec is None:
+        if os.path.exists(ref_path):
+            shutil.rmtree(ref_path)  
