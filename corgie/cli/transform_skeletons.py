@@ -25,7 +25,6 @@ class GenerateNewSkeletonTask(scheduling.Task):
     def __init__(
         self, skeleton_id_str, src_path, dst_path, task_vertex_size, vertex_sort=False
     ):
-        # self.skeleton = get_skeleton(src_path, skeleton_id_str)
         self.src_path = src_path
         self.dst_path = dst_path
         self.skeleton_id_str = skeleton_id_str
@@ -48,7 +47,7 @@ class GenerateNewSkeletonTask(scheduling.Task):
             if i + 1 == len(index_points):
                 end_index = number_vertices
             else:
-                end_index = index_points[1]
+                end_index = index_points[i+1]
             array_filenames.append(
                 f"intermediary_arrays/{self.skeleton_id_str}:{start_index}-{end_index}"
             )
