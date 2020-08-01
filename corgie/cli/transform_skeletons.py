@@ -129,13 +129,13 @@ class TransformSkeletonVerticesTask(scheduling.Task):
                 mip=self.field_mip,
             )
             field_data = self.vector_field_layer.read(
-                bcube=bcube, mip=self.field_mip, transpose=False
-            )
+                bcube=bcube, mip=self.field_mip
+            ).permute(2,3,0,1)
             current_batch_vertices_to_mip = current_batch_vertices / field_resolution
             bcube_minpt = bcube.minpt(self.field_mip)
             field_indices = current_batch_vertices_to_mip.astype(np.int) - bcube_minpt
             # The magnitude of vectors in vector fields are stored in MIP 0 Resolution
-            mip0_pixel_resolution = self.vector_field_layer.resolution(0)
+            mip0_pixel_resolution = self.vector_field_layer.resolution(self.field_mip)
             vectors_to_add = []
             for cur_field_index in field_indices:
                 vector_at_point = field_data[
@@ -150,6 +150,8 @@ class TransformSkeletonVerticesTask(scheduling.Task):
                     ]
                 )
             vectors_to_add = np.array(vectors_to_add)
+            # import ipdb
+            # ipdb.set_trace()
             current_batch_warped_vertices = current_batch_vertices + vectors_to_add
             new_vertices.append(current_batch_warped_vertices)
         new_vertices = np.concatenate(new_vertices)

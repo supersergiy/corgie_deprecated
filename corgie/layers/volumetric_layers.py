@@ -171,8 +171,7 @@ class FieldLayer(VolumetricLayer):
             downs_data = torch.nn.functional.interpolate(data_tens.float(),
                                 mode='bilinear',
                                 scale_factor=1/2,
-                                align_corners=False,
-                    recompute_scale_factor=False)
+                                align_corners=False)
             return downs_data * 0.5
 
         return downsampler
@@ -182,8 +181,7 @@ class FieldLayer(VolumetricLayer):
             ups_data = torch.nn.functional.interpolate(data_tens.float(),
                                 mode='bilinear',
                                 scale_factor=2.0,
-                                align_corners=False,
-                    recompute_scale_factor=False)
+                                align_corners=False)
             return ups_data * 2
 
         return upsampler
