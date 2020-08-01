@@ -187,6 +187,11 @@ def render(ctx, src_layer_spec, dst_folder, pad, render_masks, blackout_masks,
          coord_mip, force_chunk_xy, force_chunk_z, suffix):
     scheduler = ctx.obj['scheduler']
 
+    if suffix is None:
+        suffix = '_rendered'
+    else:
+        suffix = f"_{suffix}"
+
     corgie_logger.debug("Setting up layers...")
     src_stack = create_stack_from_spec(src_layer_spec,
             name='src', readonly=True)

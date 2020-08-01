@@ -26,7 +26,8 @@ setuptools.setup(
       'click-option-group',
       'click',
       'procspec',
-      'modelhouse'
+      'modelhouse',
+      'torchfields'
     ],
     entry_points={
         "console_scripts": [

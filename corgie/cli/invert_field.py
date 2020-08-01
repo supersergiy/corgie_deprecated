@@ -94,9 +94,10 @@ class InvertFieldTask(scheduling.Task):
 @corgie_option('--chunk_xy',       '-c', nargs=1, type=int, default=1024)
 @corgie_option('--chunk_z',              nargs=1, type=int, default=1)
 @corgie_option('--blend_xy',             nargs=1, type=int, default=0)
-@corgie_option('--pad',                  nargs=1, type=int, default=512)
+@corgie_option('--pad',                  nargs=1, type=int, default=128)
 @corgie_option('--crop',                 nargs=1, type=int, default=None)
 @corgie_option('--mip',                  nargs=1, type=int)
+@corgie_option('--force_chunk_xy',     is_flag=True)
 
 @corgie_optgroup('Data Region Specification')
 @corgie_option('--start_coord',      nargs=1, type=str, required=True)
@@ -107,8 +108,14 @@ class InvertFieldTask(scheduling.Task):
 @click.pass_context
 def invert_field(ctx, src_layer_spec, dst_layer_spec,
         pad, crop, chunk_xy, start_coord, mip,
-        end_coord, coord_mip, blend_xy, chunk_z):
+        end_coord, coord_mip, blend_xy, chunk_z,
+        force_chunk_xy):
     scheduler = ctx.obj['scheduler']
+
+    if force_chunk_xy:
+        force_chunk_xy = chunk_xy
+    else:
+        force_chunk_xy = None
 
     corgie_logger.debug("Setting up layers...")
     src_layer = create_layer_from_spec(src_layer_spec, allowed_types=['field'],
@@ -116,7 +123,7 @@ def invert_field(ctx, src_layer_spec, dst_layer_spec,
 
     dst_layer = create_layer_from_spec(dst_layer_spec, allowed_types=['field'],
             default_type='field', readonly=False, caller_name='dst_layer',
-            reference=src_layer, overwrite=True)
+            reference=src_layer, overwrite=True, force_chunk_xy=force_chunk_xy)
 
     bcube = get_bcube_from_coords(start_coord, end_coord, coord_mip)
 
