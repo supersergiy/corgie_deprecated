@@ -138,6 +138,13 @@ class TransformSkeletonVerticesTask(scheduling.Task):
             field_indices = current_batch_vertices_to_mip.astype(np.int) - bcube_minpt
             vector_resolution = (
                 self.vector_field_layer.resolution(0)
+                * np.array(
+                    [
+                        2 ** (self.field_mip - self.vector_field_layer.data_mip),
+                        2 ** (self.field_mip - self.vector_field_layer.data_mip),
+                        1,
+                    ]
+                )
                 if self.mip0_field
                 else self.vector_field_layer.resolution(self.field_mip)
             )
@@ -327,7 +334,7 @@ class TransformSkeletonsJob(scheduling.Job):
     nargs=1,
     type=bool,
     default=False,
-    help="Set to True if field is stored in MIP 0 pixels",
+    help="Set to True if field values are stored in MIP 0 pixels even though the field is not itself MIP 0."
 )
 @click.pass_context
 def transform_skeletons(

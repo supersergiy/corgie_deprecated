@@ -82,8 +82,6 @@ class CVLayerBase(BaseLayerBackend):
         x_range = bcube.x_range(mip)
         y_range = bcube.y_range(mip)
         z_range = bcube.z_range()
-        # import ipdb
-        # ipdb.set_trace()
 
         this_cv = self.cv[mip]
         x_off, y_off, z_off = this_cv.voxel_offset

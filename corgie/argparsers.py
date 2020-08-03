@@ -43,11 +43,7 @@ def create_layer_from_spec(spec_str, reference=None, caller_name=None,
             "args": {},
             "readonly": False
             }
-    try:
-        param_dict = json.loads(spec_str)
-    except:
-        import ipdb
-        ipdb.set_trace()
+    param_dict = json.loads(spec_str)
     for k in param_dict.keys():
         if k not in default_param_dict:
             raise exceptions.CorgieException(f"Unkown layer parameter '{k}'")

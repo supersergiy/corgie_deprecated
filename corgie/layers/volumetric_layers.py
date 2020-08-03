@@ -102,7 +102,7 @@ class ImgLayer(VolumetricLayer):
                     mode='bilinear',
                     scale_factor=1/2,
                     align_corners=False,
-                    *get_extra_interpolate_parameters())
+                    **get_extra_interpolate_parameters())
         return downsampler
 
     def get_upsampler(self):
@@ -111,7 +111,7 @@ class ImgLayer(VolumetricLayer):
                     mode='bilinear',
                     scale_factor=2.0,
                     align_corners=False,
-                    *get_extra_interpolate_parameters())
+                    **get_extra_interpolate_parameters())
         return upsampler
 
     def get_num_channels(self, *args, **kwargs):
@@ -140,7 +140,7 @@ class SegmentationLayer(VolumetricLayer):
                                 mode='nearest',
                                 scale_factor=1/2,
                                 align_corners=False,
-                                *get_extra_interpolate_parameters())
+                                **get_extra_interpolate_parameters())
             return downs_data
 
         return downsampler
@@ -151,7 +151,7 @@ class SegmentationLayer(VolumetricLayer):
                                 mode='nearest',
                                 scale_factor=2.0,
                                 align_corners=False,
-                                *get_extra_interpolate_parameters())
+                                **get_extra_interpolate_parameters())
             return ups_data
 
         return upsampler
@@ -180,7 +180,7 @@ class FieldLayer(VolumetricLayer):
                                 mode='bilinear',
                                 scale_factor=1/2,
                                 align_corners=False,
-                                *get_extra_interpolate_parameters())
+                                **get_extra_interpolate_parameters())
             return downs_data * 0.5
 
         return downsampler
@@ -191,7 +191,7 @@ class FieldLayer(VolumetricLayer):
                                 mode='bilinear',
                                 scale_factor=2.0,
                                 align_corners=False,
-                                *get_extra_interpolate_parameters())
+                                **get_extra_interpolate_parameters())
             return ups_data * 2
 
         return upsampler
@@ -230,7 +230,7 @@ class MaskLayer(VolumetricLayer):
             return torch.nn.functional.interpolate(data_tens.float(),
                     mode='nearest',
                     scale_factor=2.0,
-                    *get_extra_interpolate_parameters())
+                    **get_extra_interpolate_parameters())
         return upsampler
 
     def get_num_channels(self, *args, **kwargs):
