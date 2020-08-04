@@ -21,6 +21,8 @@ class PairwiseVoteFieldJob(scheduling.Job):
     def __init__(self,
                  pairwise_fields,
                  output_fields,
+                 intermediary_fields,
+                 intermediary_weights,
                  chunk_xy,
                  chunk_z,
                  pad,
@@ -31,6 +33,8 @@ class PairwiseVoteFieldJob(scheduling.Job):
                  blur_sigma):
         self.pairwise_fields  = pairwise_fields   
         self.output_fields    = output_fields
+        self.intermediary_fields = intermediary_fields
+        self.intermediary_weights = intermediary_weights
         self.chunk_xy         = chunk_xy
         self.chunk_z          = chunk_z
         self.pad              = pad
@@ -51,6 +55,8 @@ class PairwiseVoteFieldJob(scheduling.Job):
 
         tasks = [PairwiseVoteFieldTask(pairwise_fields=self.pairwise_fields,
                                     output_fields=self.output_fields,
+                                    intermediary_fields =  self.intermediary_fields
+                                    intermediary_weights = self.intermediary_weights
                                     mip=self.mip,
                                     pad=self.pad,
                                     crop=self.crop,
@@ -66,6 +72,8 @@ class PairwiseVoteFieldTask(scheduling.Task):
     def __init__(self, 
                   pairwise_fields, 
                   output_fields, 
+                  intermediary_fields,
+                  intermediary_weights,
                   mip,
                   pad, 
                   crop, 
@@ -87,6 +95,8 @@ class PairwiseVoteFieldTask(scheduling.Task):
         super().__init__()
         self.pairwise_fields  = pairwise_fields
         self.output_fields    = output_fields
+        self.intermediary_fields = intermediary_fields
+        self.intermediary_weights = intermediary_weights
         self.mip              = mip
         self.pad              = pad
         self.crop             = crop
@@ -129,17 +139,35 @@ class PairwiseVoteFieldTask(scheduling.Task):
                                             mip=self.mip)
                 print('Using field F[{}]'.format(tgt_to_src))
                 fields[offset] = f
+        
+        if self.intermedary_fields is not None:
+            for offset, field in fields.items():
+                cropped_field = helpers.crop(field, self.crop)
+                self.intermediary_fields.write(data=cropped_field,
+                                               tgt_to_src=(z+offset, z),
+                                               bcube=self.bcube,
+                                               mip=self.mip)
 
         if len(fields) > 0:
             offsets = list(fields.keys())
             offsets.sort()
             fields = torch.cat([fields[k] for k in offsets]).field()
-            med_field = fields.vote(softmin_temp=self.softmin_temp,
-                                    blur_sigma=self.blur_sigma)
+            # med_field = fields.vote(softmin_temp=self.softmin_temp,
+            #                         blur_sigma=self.blur_sigma)
+            field_weights = fields.get_vote_weights(softmin_temp=self.softmin_temp,
+                                                    blur_sigma=self.blur_sigma)
+            med_field = (fields * field_weights.unsqueeze(-3)).sum(dim=0, keepdim=True) 
             cropped_field = helpers.crop(med_field, self.crop)
             self.output_fields.write(data_tens=cropped_field, 
                                      bcube=self.bcube, 
                                      mip=self.mip)
+            if self.intermediary_weights is not None:
+                for offset, weight in zip(offsets, field_weights):
+                    cropped_weight = helpers.crop(weight, self.crop)
+                    self.intermediary_weights.write(data=cropped_weight,
+                                                tgt_to_src=(z+offset, z),
+                                                bcube=self.bcube,
+                                                mip=self.mip)
 
 @click.command()
 
@@ -163,6 +191,7 @@ class PairwiseVoteFieldTask(scheduling.Task):
 @corgie_option('--mip',                  nargs=1, type=int, default=0)
 @corgie_option('--softmin_temp',         nargs=1, type=float, default=1)
 @corgie_option('--blur_sigma',           nargs=1, type=float, default=1)
+@corgie_option('--write_intermediaries/--no_intermediaries', default=False)
 @corgie_optgroup('')
 @corgie_option('--crop',                 nargs=1, type=int, default=None)
 @corgie_option('--suffix',               nargs=1, type=str, default='')
@@ -188,6 +217,7 @@ def pairwise_vote_field(ctx,
                        mip,
                        softmin_temp,
                        blur_sigma,
+                       write_intermediaries,
                        suffix):
     """Compute median pairwise displacement fields via voting
 
@@ -241,9 +271,40 @@ def pairwise_vote_field(ctx,
     if crop is None:
         crop = pad
 
+    intermediary_fields = None
+    intermediary_weights = None
+    if write_intermediaries:
+        intermediary_fields_dir = os.path.join(output_fields.folder, 
+                                               "intermediaries", 
+                                               "fields")
+        intermediary_weights_dir = os.path.join(output_fields.folder, 
+                                                "intermediaries", 
+                                                "weights")
+        intermediary_fields = PairwiseFields(name='intermediary_fields',
+                                        folder=intermediary_fields_dir)
+        intermediary_fields.add_offsets(offsets, 
+                                    readonly=False, 
+                                    reference=pairwise_fields,
+                                    overwrite=True)
+        weight_info = deepcopy(pairwise_fields.get_info())
+        weight_info['num_channels'] = 1
+        # dummy object for get_info() method
+        weight_ref = MiplessCloudVolume(path='file://tmp/cloudvolume/empty',
+                                info=weight_info,
+                                overwrite=False)
+        intermediary_weights = PairwiseTensors(name='intermediary_weights',
+                                            folder=intermediary_weights_dir)
+        intermediary_weights.add_offsets(offsets, 
+                                    readonly=False, 
+                                    reference=weight_ref,
+                                    dtype='float32',
+                                    overwrite=True)
+
     pairwise_dot_product_job = PairwiseVoteFieldJob(
             pairwise_fields=pairwise_fields,
             output_fields=output_fields,
+            intermediary_fields=intermediary_fields,
+            intermediary_weights=intermediary_weights,
             chunk_xy=chunk_xy,
             chunk_z=chunk_z,
             pad=pad,
