@@ -104,10 +104,11 @@ class PairwiseVoteFieldTask(scheduling.Task):
             if k != z:
                 # Check if we should ignore the pairwise field
                 # TODO: improve check beyond identity
-                g = self.pairwise_fields.read(tgt_to_src=(k,z), 
-                                            bcube=pbcube, 
-                                            mip=self.mip)
-                skip_field = g.is_identity()
+                # g = self.pairwise_fields.read(tgt_to_src=(k,z), 
+                #                             bcube=pbcube, 
+                #                             mip=self.mip)
+                # skip_field = g.is_identity()
+                skip_field = False
                 # TODO: Introduce processing for partial identity fields
                 # TODO: Consider when XOR(forward.is_identity, reverse.is_identity)
                 if not skip_field:
