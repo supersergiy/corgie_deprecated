@@ -101,23 +101,34 @@ class PairwiseVoteFieldTask(scheduling.Task):
         fields = {} 
         for offset in self.pairwise_fields.offsets:
             k = z + offset
-            tgt_to_src = (k, k, z)
             if k != z:
-                # we store the previous field at PAIRWISE_FIELDS[(0,0)] 
-                # but the true (initial) PAIRWISE_FIELDS[(0,0)] should be identity
-                # i.e. ::math:: f_{z^{(0)} \leftarrow z^{(0)}} = I
-                # but  ::math:: f_{z^{(t-1)} \leftarrow z^{(0)}} \neq I
-                f = self.pairwise_fields.read(tgt_to_src=tgt_to_src, 
-                                            bcube=pbcube, 
-                                            mip=self.mip)
+                # Check if we should ignore the pairwise field
+                # TODO: improve check beyond identity
                 g = self.pairwise_fields.read(tgt_to_src=(k,z), 
                                             bcube=pbcube, 
                                             mip=self.mip)
+                skip_field = g.is_identity()
                 # TODO: Introduce processing for partial identity fields
                 # TODO: Consider when XOR(forward.is_identity, reverse.is_identity)
-                if not g.is_identity():
+                if not skip_field:
+                    tgt_to_src = (k, k, z)
+                    # we store the previous field at PAIRWISE_FIELDS[(0,0)] 
+                    # but the true (initial) PAIRWISE_FIELDS[(0,0)] should be identity
+                    # i.e. ::math:: f_{z^{(0)} \leftarrow z^{(0)}} = I
+                    # but  ::math:: f_{z^{(t-1)} \leftarrow z^{(0)}} \neq I
+                    # TODO: Introduce processing for partial identity fields
+                    f = self.pairwise_fields.read(tgt_to_src=tgt_to_src, 
+                                                bcube=pbcube, 
+                                                mip=self.mip)
                     print('Using field F[{}]'.format(tgt_to_src))
                     fields[offset] = f
+            else:
+                f = self.pairwise_fields.read(tgt_to_src=(k,k), 
+                                            bcube=pbcube, 
+                                            mip=self.mip)
+                print('Using field F[{}]'.format(tgt_to_src))
+                fields[offset] = f
+
         if len(fields) > 0:
             offsets = list(fields.keys())
             offsets.sort()
