@@ -16,7 +16,9 @@ setuptools.setup(
     package_data={'': ['*.py']},
     install_requires=[
       'sphinx-click',
+      'torchfields',
       'torch',
+      'artificery',
       'gevent',
       'torchvision',
       'numpy',
@@ -26,7 +28,8 @@ setuptools.setup(
       'click-option-group',
       'click',
       'procspec',
-      'modelhouse'
+      'modelhouse',
+      'cloud-volume'
     ],
     entry_points={
         "console_scripts": [
