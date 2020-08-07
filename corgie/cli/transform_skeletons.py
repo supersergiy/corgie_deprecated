@@ -47,7 +47,7 @@ class GenerateNewSkeletonTask(scheduling.Task):
             if i + 1 == len(index_points):
                 end_index = number_vertices
             else:
-                end_index = index_points[i+1]
+                end_index = index_points[i + 1]
             array_filenames.append(
                 f"intermediary_arrays/{self.skeleton_id_str}:{start_index}-{end_index}"
             )
@@ -89,6 +89,7 @@ class TransformSkeletonVerticesTask(scheduling.Task):
         start_vertex_index,
         end_vertex_index,
         vertex_sort=False,
+        mip0_field=False,
     ):
         self.vector_field_layer = vector_field_layer
         self.skeleton_id_str = skeleton_id_str
@@ -98,6 +99,7 @@ class TransformSkeletonVerticesTask(scheduling.Task):
         self.start_vertex_index = start_vertex_index
         self.end_vertex_index = end_vertex_index
         self.vertex_sort = vertex_sort
+        self.mip0_field = mip0_field
         super().__init__()
 
     def execute(self):
@@ -130,12 +132,22 @@ class TransformSkeletonVerticesTask(scheduling.Task):
             )
             field_data = self.vector_field_layer.read(
                 bcube=bcube, mip=self.field_mip
-            ).permute(2,3,0,1)
+            ).permute(2, 3, 0, 1)
             current_batch_vertices_to_mip = current_batch_vertices / field_resolution
             bcube_minpt = bcube.minpt(self.field_mip)
             field_indices = current_batch_vertices_to_mip.astype(np.int) - bcube_minpt
-            # The magnitude of vectors in vector fields are stored in MIP 0 Resolution
-            mip0_pixel_resolution = self.vector_field_layer.resolution(self.field_mip)
+            vector_resolution = (
+                self.vector_field_layer.resolution(0)
+                * np.array(
+                    [
+                        2 ** (self.field_mip - self.vector_field_layer.data_mip),
+                        2 ** (self.field_mip - self.vector_field_layer.data_mip),
+                        1,
+                    ]
+                )
+                if self.mip0_field
+                else self.vector_field_layer.resolution(self.field_mip)
+            )
             vectors_to_add = []
             for cur_field_index in field_indices:
                 vector_at_point = field_data[
@@ -144,14 +156,12 @@ class TransformSkeletonVerticesTask(scheduling.Task):
                 # Each vector is stored in [Y,X] format
                 vectors_to_add.append(
                     [
-                        int(mip0_pixel_resolution[0] * vector_at_point[1].item()),
-                        int(mip0_pixel_resolution[1] * vector_at_point[0].item()),
+                        int(vector_resolution[0] * vector_at_point[1].item()),
+                        int(vector_resolution[1] * vector_at_point[0].item()),
                         0,
                     ]
                 )
             vectors_to_add = np.array(vectors_to_add)
-            # import ipdb
-            # ipdb.set_trace()
             current_batch_warped_vertices = current_batch_vertices + vectors_to_add
             new_vertices.append(current_batch_warped_vertices)
         new_vertices = np.concatenate(new_vertices)
@@ -176,6 +186,7 @@ class TransformSkeletonsJob(scheduling.Job):
         skeleton_ids,
         task_vertex_size=200,
         skeleton_length_file=None,
+        mip0_field=False,
     ):
         self.vector_field_layer = vector_field_layer
         self.src_path = src_path
@@ -187,6 +198,7 @@ class TransformSkeletonsJob(scheduling.Job):
             self.skeleton_ids = skeleton_ids
         self.task_vertex_size = task_vertex_size
         self.skeleton_length_file = skeleton_length_file
+        self.mip0_field = mip0_field
         super().__init__()
 
     def task_generator(self):
@@ -214,6 +226,7 @@ class TransformSkeletonsJob(scheduling.Job):
                         start_vertex_index=start_vertex_index,
                         end_vertex_index=end_vertex_index,
                         vertex_sort=True,
+                        mip0_field=self.mip0_field,
                     )
                 )
             generate_new_skeleton_tasks.append(
@@ -310,7 +323,7 @@ class TransformSkeletonsJob(scheduling.Job):
 @corgie_option(
     "--task_vertex_size",
     type=int,
-    default=200,
+    default=1000,
     help="How many vertices are transformed by each TransformSkeletonVertices task. Less means more parallelizable, but more intermediary files",
 )
 @corgie_option(
@@ -318,6 +331,13 @@ class TransformSkeletonsJob(scheduling.Job):
     type=bool,
     default=True,
     help="If True, write file containing lengths of each skeleton.",
+)
+@corgie_option(
+    "--mip0_field",
+    nargs=1,
+    type=bool,
+    default=False,
+    help="Set to True if field values are stored in MIP 0 pixels even though the field is not itself MIP 0."
 )
 @click.pass_context
 def transform_skeletons(
@@ -330,6 +350,7 @@ def transform_skeletons(
     ids_filepath,
     task_vertex_size,
     calculate_skeleton_lengths,
+    mip0_field,
 ):
     scheduler = ctx.obj["scheduler"]
 
@@ -366,6 +387,7 @@ def transform_skeletons(
         skeleton_ids=skeleton_ids,
         task_vertex_size=task_vertex_size,
         skeleton_length_file=skeleton_length_file,
+        mip0_field=mip0_field,
     )
 
     scheduler.register_job(

@@ -9,6 +9,14 @@ from corgie.boundingcube import BoundingCube
 from corgie.layers.base import register_layer_type, BaseLayerType
 from corgie import helpers
 
+def get_extra_interpolate_parameters():
+    # torch.nn.function.interpolate complains if this
+    # argument is not provided, but it doesn't exist in older versions
+    from packaging import version
+    if version.parse(torch.__version__) <= version.parse("1.4.0"):
+        return {}
+    return {"recompute_scale_factor": False}
+
 class VolumetricLayer(BaseLayerType):
     def __init__(self, data_mip=None, **kwargs):
         super().__init__(**kwargs)
@@ -94,7 +102,7 @@ class ImgLayer(VolumetricLayer):
                     mode='bilinear',
                     scale_factor=1/2,
                     align_corners=False,
-                    recompute_scale_factor=False)
+                    **get_extra_interpolate_parameters())
         return downsampler
 
     def get_upsampler(self):
@@ -103,7 +111,7 @@ class ImgLayer(VolumetricLayer):
                     mode='bilinear',
                     scale_factor=2.0,
                     align_corners=False,
-                    recompute_scale_factor=False)
+                    **get_extra_interpolate_parameters())
         return upsampler
 
     def get_num_channels(self, *args, **kwargs):
@@ -132,7 +140,7 @@ class SegmentationLayer(VolumetricLayer):
                                 mode='nearest',
                                 scale_factor=1/2,
                                 align_corners=False,
-                    recompute_scale_factor=False)
+                                **get_extra_interpolate_parameters())
             return downs_data
 
         return downsampler
@@ -143,7 +151,7 @@ class SegmentationLayer(VolumetricLayer):
                                 mode='nearest',
                                 scale_factor=2.0,
                                 align_corners=False,
-                    recompute_scale_factor=False)
+                                **get_extra_interpolate_parameters())
             return ups_data
 
         return upsampler
@@ -171,7 +179,8 @@ class FieldLayer(VolumetricLayer):
             downs_data = torch.nn.functional.interpolate(data_tens.float(),
                                 mode='bilinear',
                                 scale_factor=1/2,
-                                align_corners=False)
+                                align_corners=False,
+                                **get_extra_interpolate_parameters())
             return downs_data * 0.5
 
         return downsampler
@@ -181,7 +190,8 @@ class FieldLayer(VolumetricLayer):
             ups_data = torch.nn.functional.interpolate(data_tens.float(),
                                 mode='bilinear',
                                 scale_factor=2.0,
-                                align_corners=False)
+                                align_corners=False,
+                                **get_extra_interpolate_parameters())
             return ups_data * 2
 
         return upsampler
@@ -220,7 +230,7 @@ class MaskLayer(VolumetricLayer):
             return torch.nn.functional.interpolate(data_tens.float(),
                     mode='nearest',
                     scale_factor=2.0,
-                    recompute_scale_factor=False)
+                    **get_extra_interpolate_parameters())
         return upsampler
 
     def get_num_channels(self, *args, **kwargs):
