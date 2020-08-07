@@ -8,11 +8,11 @@ ADD . /opt/corgie
 WORKDIR /opt/corgie
 
 RUN apt-get update \
-  # Install SEAMLeSS dependencies
+  # Install dependencies
   && apt-get install -y --no-install-recommends \
       libgtk2.0-dev language-pack-en \
   && pip install --no-cache-dir -r docs/requirements.txt \
+  && pip install -e . \
   # Cleanup apt
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/* \
-

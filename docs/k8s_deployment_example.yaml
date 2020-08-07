@@ -32,7 +32,7 @@ items:
           - corgie-worker --queue_name manuel-seamless-2 --lease_seconds 150
           command:
           - /bin/sh
-          image: seunglab/corgie:manuel-first
+          image: seunglab/corgie:latest
           imagePullPolicy: Always
           name: corgie
           resources: {}

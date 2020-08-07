@@ -30,6 +30,7 @@ setuptools.setup(
       'procspec',
       'modelhouse',
       'cloud-volume'
+      'kimimaro'
     ],
     entry_points={
         "console_scripts": [
