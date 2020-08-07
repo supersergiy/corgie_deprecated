@@ -40,7 +40,8 @@ def create_layer_from_spec(spec_str, reference=None, caller_name=None,
             "name": None,
             "type": default_type,
             "data_backend": DEFAULT_DATA_BACKEND,
-            "args": {}
+            "args": {},
+            "readonly": False
             }
     param_dict = json.loads(spec_str)
     for k in param_dict.keys():

@@ -78,7 +78,7 @@ class CVLayerBase(BaseLayerBackend):
         return self.backend.create_layer(path=path, reference=self,
                 layer_type=layer_type, **kwargs)
 
-    def read_backend(self, bcube, mip):
+    def read_backend(self, bcube, mip, transpose=True, timestamp=None):
         x_range = bcube.x_range(mip)
         y_range = bcube.y_range(mip)
         z_range = bcube.z_range()
@@ -100,10 +100,25 @@ class CVLayerBase(BaseLayerBackend):
 
         corgie_logger.debug("READ from {}: \n   x: {}, y: {}, z: {}, MIP: {}".format(
             str(self), x_range, y_range, z_range, mip))
-        data = self.cv[mip][x_range[0]:x_range[1],
-                     y_range[0]:y_range[1],
-                     z_range[0]:z_range[1]]
-        data = np.transpose(data, (2,3,0,1))
+        if timestamp is not None:
+            data = self.cv[mip].download(
+                bbox=(
+                    slice(x_range[0], x_range[1], None),
+                    slice(y_range[0], y_range[1], None),
+                    slice(z_range[0], z_range[1], None),
+                ),
+                mip=mip,
+                preserve_zeros=True,
+                parallel=self.cv[mip].parallel,
+                agglomerate=True,
+                timestamp=timestamp,
+            )
+        else:
+            data = self.cv[mip][x_range[0]:x_range[1],
+                        y_range[0]:y_range[1],
+                        z_range[0]:z_range[1]]
+        if transpose:
+            data = np.transpose(data, (2,3,0,1))
         return data
 
     def write_backend(self, data, bcube, mip):
@@ -123,6 +138,9 @@ class CVLayerBase(BaseLayerBackend):
 
     def get_info(self):
         return self.cv.get_info()
+
+    def resolution(self, mip):
+        return self.cv[mip].resolution
 
     def get_chunk_aligned_bcube(self, bcube, mip, chunk_xy, chunk_z):
         cv_chunk = self.cv[mip].chunk_size
