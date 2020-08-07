@@ -166,93 +166,108 @@ class TransformSkeletonVerticesTask(scheduling.Task):
         return self.end_vertex_index - self.start_vertex_index
 
 
-class TransformSkeletonsJob(scheduling.Job):
+def get_skeleton_vert_neighbor_ids(sk, vert_id):
+    vert_edges = np.where(
+        np.isin(sk.edges[:, 0], vert_id) + \
+        np.isin(sk.edges[:, 1], vert_id)\
+    )[0]
+
+    neighbors = sk.edges[vert_edges[-1]].flatten()
+
+    # filter out self
+    self_index = np.where(neighbors == vert_id)
+    neighbors = np.delete(neighbors, self_index)
+
+    return neighbors
+
+
+class FilterSkeletonsJob(scheduling.Job):
     def __init__(
         self,
-        vector_field_layer,
         src_path,
         dst_path,
-        field_mip,
         skeleton_ids,
-        task_vertex_size=200,
         skeleton_length_file=None,
     ):
-        self.vector_field_layer = vector_field_layer
         self.src_path = src_path
         self.dst_path = dst_path
-        self.field_mip = field_mip
+
         if skeleton_ids is None:
             self.skeleton_ids = self.get_all_skeleton_ids()
         else:
             self.skeleton_ids = skeleton_ids
-        self.task_vertex_size = task_vertex_size
         self.skeleton_length_file = skeleton_length_file
         super().__init__()
 
     def task_generator(self):
+        bad_sections = sorted([17891])
         skeletons = self.get_skeletons(self.src_path)
-        transform_vertex_tasks = []
-        generate_new_skeleton_tasks = []
-        for skeleton_id_str, skeleton in skeletons.items():
-            number_vertices = len(skeleton.vertices)
-            # Vector field chunks are typically chunked by 1 in z, so we process
-            # the skeleton's vertices in z-order for maximum download efficiency.
-            index_points = list(range(0, number_vertices, self.task_vertex_size))
-            for i in range(len(index_points)):
-                start_vertex_index = index_points[i]
-                if i + 1 == len(index_points):
-                    end_vertex_index = number_vertices
-                else:
-                    end_vertex_index = index_points[i + 1]
-                transform_vertex_tasks.append(
-                    TransformSkeletonVerticesTask(
-                        vector_field_layer=self.vector_field_layer,
-                        skeleton_id_str=skeleton_id_str,
-                        src_path=self.src_path,
-                        dst_path=self.dst_path,
-                        field_mip=self.field_mip,
-                        start_vertex_index=start_vertex_index,
-                        end_vertex_index=end_vertex_index,
-                        vertex_sort=True,
-                    )
-                )
-            generate_new_skeleton_tasks.append(
-                GenerateNewSkeletonTask(
-                    skeleton_id_str=skeleton_id_str,
-                    src_path=self.src_path,
-                    dst_path=self.dst_path,
-                    task_vertex_size=self.task_vertex_size,
-                    vertex_sort=True,
-                )
-            )
-        corgie_logger.info(
-            f"Yielding transform skeleton vertex tasks for skeletons in {self.src_path}"
-        )
-        #yield transform_vertex_tasks
-        #yield scheduling.wait_until_done
-        corgie_logger.info(f"Generating skeletons to {self.dst_path}")
-        #yield generate_new_skeleton_tasks
-        #yield scheduling.wait_until_done
-        # TODO: Delete intermediary vertex files
 
-        if self.skeleton_length_file is not None:
-            new_skeletons = self.get_skeletons(self.dst_path)
-            corgie_logger.info(
-                f"Calculating skeleton lengths to {self.skeleton_length_file}"
-            )
-            with open(self.skeleton_length_file, "w") as f:
-                f.write(
-                    "Skeleton id, Original Skeleton Length (nm), New Skeleton Length (nm)\n"
-                )
-                for skeleton_id_str in skeletons:
-                    original_skeleton = skeletons[skeleton_id_str]
-                    new_skeleton = new_skeletons[skeleton_id_str]
-                    verts = new_skeleton.vertices
-                    vl = [verts[i] for i in range(verts.shape[0])]
-                    import pdb; pdb.set_trace()
-                    f.write(
-                        f"{skeleton_id_str},{int(original_skeleton.cable_length())},{int(new_skeleton.cable_length())}\n"
-                    )
+        for skeleton_id_str, sk in skeletons.items():
+            # Vector field chunks are typically chunked by 1 in z, so we process
+            length_before = sk.cable_length()
+
+            while True:
+                verts = sk.vertices
+                vert_zs = verts[:, 2].copy()
+                vert_zs /= 40 #hack
+                vert_zs = vert_zs.astype(np.int32)
+
+                bad_verts = np.where(np.isin(vert_zs, bad_sections))[0]
+                print (bad_verts.size)
+                if bad_verts.size == 0:
+                    break
+
+                # Find the next set of vertices to remove so that
+                # we don't mess with indices, remove the in the next pass
+                deleted = 0
+                for bv in bad_verts:
+                    neighbors = get_skeleton_vert_neighbor_ids(sk, bv)
+
+                    # filter out other bad vertices
+                    print (bv, neighbors)
+                    bad_index = np.where(np.isin(neighbors, bad_verts))
+                    neighbors = np.delete(neighbors, bad_index)
+                    print (bv, neighbors)
+
+                    assert (np.isin(neighbors.flatten(), bad_verts).sum() == 0)
+
+                    # if there's a good neighbor, reasign all the endpoints to it
+                    # else wait until the next round
+                    if len(neighbors) != 0:
+                        replacement = neighbors[0]
+                        assert (replacement not in bad_verts)
+                        ed = np.expand_dims(sk.edges, -1)
+                        ed[np.where(ed == bv)] = replacement
+                        sk.edges = ed.squeeze(-1)
+                        # this leaves self-edges
+                        print ("Deleted!")
+                        deleted += 1
+
+                #old_v_count = sk.vertices.shape[0]
+                #old_e_count = sk.edges.shape[0]
+                # this removes self-edges
+                sk = sk.consolidate()
+                new_v_count = sk.vertices.shape[0]
+                new_e_count = sk.edges.shape[0]
+                #print (deleted)
+                #print ("Verts: ", new_v_count, old_v_count)
+                #print ("Edges: ", new_e_count, old_e_count)
+                #if new_v_count + deleted != old_v_count:
+                #    print ("SOmehting is wrong with the count")
+                #    import ipdb; ipdb.set_trace()
+
+                #bad_count = 0
+                #for v in range(sk.vertices.shape[0]):
+                #    z = int(sk.vertices[v][-1] / 40)
+                #    if z in bad_sections:
+                #        bad_count += 1
+        print (length_before, sk.cable_length())
+        import ipdb; ipdb.set_trace()
+
+                #print (len(bad_verts))
+                #print (sk.vertices.shape)
+
 
     def get_skeletons(self, folder):
         skeleton_filenames = [str(skeleton_id) for skeleton_id in self.skeleton_ids]
@@ -280,16 +295,6 @@ class TransformSkeletonsJob(scheduling.Job):
 @click.command()
 @corgie_optgroup("Layer Parameters")
 @corgie_option(
-    "--vector_field_spec",
-    "--v",
-    nargs=1,
-    type=str,
-    required=True,
-    multiple=True,
-    help="Vector field from origin to dst (in push notation, or from dst to origin in pull notation)"
-    + LAYER_HELP_STR,
-)
-@corgie_option(
     "--src_folder",
     nargs=1,
     type=str,
@@ -304,15 +309,8 @@ class TransformSkeletonsJob(scheduling.Job):
     help="Folder where to store new skeletons",
 )
 @corgie_optgroup("Misc Parameters")
-@corgie_option("--field_mip", nargs=1, type=int, help="MIP of vector field")
 @corgie_option("--ids", multiple=True, type=int, help="Ids to transform")
 @corgie_option("--ids_filepath", type=str, help="File containing ids to transform")
-@corgie_option(
-    "--task_vertex_size",
-    type=int,
-    default=200,
-    help="How many vertices are transformed by each TransformSkeletonVertices task. Less means more parallelizable, but more intermediary files",
-)
 @corgie_option(
     "--calculate_skeleton_lengths",
     type=bool,
@@ -320,21 +318,17 @@ class TransformSkeletonsJob(scheduling.Job):
     help="If True, write file containing lengths of each skeleton.",
 )
 @click.pass_context
-def transform_skeletons(
+def filter_skeletons(
     ctx,
-    vector_field_spec,
     src_folder,
     dst_folder,
-    field_mip,
     ids,
     ids_filepath,
-    task_vertex_size,
     calculate_skeleton_lengths,
 ):
     scheduler = ctx.obj["scheduler"]
 
     corgie_logger.debug("Setting up layers...")
-    vf_stack = create_stack_from_spec(vector_field_spec, name="src", readonly=True)
 
     skeleton_ids = ids
     if ids_filepath is not None:
@@ -344,6 +338,7 @@ def transform_skeletons(
             while line:
                 skeleton_ids.append(int(line))
                 line = f.readline()
+
     if len(skeleton_ids) == 0:
         skeleton_ids = None
     else:
@@ -357,20 +352,16 @@ def transform_skeletons(
             os.makedirs("skeleton_lengths")
         skeleton_length_file = f"skeleton_lengths/skeleton_lengths_{int(time.time())}"
 
-    vf_layer = vf_stack.get_layers_of_type("field")[0]
-    transform_skeletons_job = TransformSkeletonsJob(
-        vector_field_layer=vf_layer,
+    transform_skeletons_job = FilterSkeletonsJob(
         src_path=src_folder,
         dst_path=dst_folder,
-        field_mip=field_mip,
         skeleton_ids=skeleton_ids,
-        task_vertex_size=task_vertex_size,
         skeleton_length_file=skeleton_length_file,
     )
 
     scheduler.register_job(
         transform_skeletons_job,
-        job_name="Transforming skeletons in {}".format(src_folder),
+        job_name="Filtering skeletons in {}".format(src_folder),
     )
 
     scheduler.execute_until_completion()
