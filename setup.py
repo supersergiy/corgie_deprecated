@@ -29,8 +29,11 @@ setuptools.setup(
       'click',
       'procspec',
       'modelhouse',
-      'cloud-volume'
-      'kimimaro'
+      'cloud-volume',
+      'scikit-image',
+      'h5py',
+      'kimimaro',
+      'docutils==0.15.0'
     ],
     entry_points={
         "console_scripts": [
