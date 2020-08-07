@@ -241,11 +241,11 @@ class TransformSkeletonsJob(scheduling.Job):
         corgie_logger.info(
             f"Yielding transform skeleton vertex tasks for skeletons in {self.src_path}"
         )
-        #yield transform_vertex_tasks
-        #yield scheduling.wait_until_done
+        yield transform_vertex_tasks
+        yield scheduling.wait_until_done
         corgie_logger.info(f"Generating skeletons to {self.dst_path}")
-        #yield generate_new_skeleton_tasks
-        #yield scheduling.wait_until_done
+        yield generate_new_skeleton_tasks
+        yield scheduling.wait_until_done
         # TODO: Delete intermediary vertex files
 
         if self.skeleton_length_file is not None:
@@ -262,7 +262,6 @@ class TransformSkeletonsJob(scheduling.Job):
                     new_skeleton = new_skeletons[skeleton_id_str]
                     verts = new_skeleton.vertices
                     vl = [verts[i] for i in range(verts.shape[0])]
-                    import pdb; pdb.set_trace()
                     f.write(
                         f"{skeleton_id_str},{int(original_skeleton.cable_length())},{int(new_skeleton.cable_length())}\n"
                     )
