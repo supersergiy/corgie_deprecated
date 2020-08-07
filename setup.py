@@ -16,7 +16,9 @@ setuptools.setup(
     package_data={'': ['*.py']},
     install_requires=[
       'sphinx-click',
+      'torchfields',
       'torch',
+      'artificery',
       'gevent',
       'torchvision',
       'numpy',
@@ -27,7 +29,11 @@ setuptools.setup(
       'click',
       'procspec',
       'modelhouse',
-      'torchfields'
+      'cloud-volume',
+      'scikit-image',
+      'h5py',
+      'kimimaro',
+      'docutils==0.15.0'
     ],
     entry_points={
         "console_scripts": [
