@@ -100,13 +100,13 @@ def cast_tensor_type(tens, dtype):
 
 def read_mask_list(mask_list, bcube, mip):
     result = None
+
     for m in mask_list:
-        this_data = m.read(bcube=bcube, mip=mip)
+        this_data = m.read(bcube=bcube, mip=mip).to(torch.bool)
         if result is None:
             result = this_data
         else:
-            result += this_data
-            result = result > 0
+            result = result | this_data
 
     return result
 
