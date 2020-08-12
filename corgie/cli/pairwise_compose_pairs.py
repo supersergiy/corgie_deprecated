@@ -90,7 +90,9 @@ class PairwiseComposePairsTask(scheduling.Task):
         z = self.bcube.z[0]
         pbcube = self.bcube.uncrop(self.pad, self.mip)
         for offset in self.estimated_fields.offsets:
-            tgt_to_src_offsets = [0, offset, 0]
+            # tgt_to_src_offsets = [0, offset, 0]
+            # Want field in reference frame of T: T <-- S <-- T
+            tgt_to_src_offsets = [offset, 0, offset]
             tgt_to_src = [z+offset for offset in tgt_to_src_offsets]
             print('Using fields F[{}]'.format(tgt_to_src))
             field = self.estimated_fields.read(tgt_to_src, 
