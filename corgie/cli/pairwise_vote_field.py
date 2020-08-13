@@ -8,6 +8,7 @@ import torch
 import torchfields
 
 from corgie import scheduling, argparsers, helpers
+from corgie.mipless_cloudvolume import MiplessCloudVolume
 
 from corgie.log import logger as corgie_logger
 from corgie.boundingcube import get_bcube_from_coords
@@ -30,7 +31,8 @@ class PairwiseVoteFieldJob(scheduling.Job):
                  bcube,
                  mip,
                  softmin_temp,
-                 blur_sigma):
+                 blur_sigma,
+                 subset_size):
         self.pairwise_fields  = pairwise_fields   
         self.output_fields    = output_fields
         self.intermediary_fields = intermediary_fields
@@ -43,6 +45,7 @@ class PairwiseVoteFieldJob(scheduling.Job):
         self.mip              = mip
         self.softmin_temp     = softmin_temp
         self.blur_sigma       = blur_sigma
+        self.subset_size      = subset_size
         super().__init__()
 
     def task_generator(self):
@@ -55,14 +58,15 @@ class PairwiseVoteFieldJob(scheduling.Job):
 
         tasks = [PairwiseVoteFieldTask(pairwise_fields=self.pairwise_fields,
                                     output_fields=self.output_fields,
-                                    intermediary_fields =  self.intermediary_fields
-                                    intermediary_weights = self.intermediary_weights
+                                    intermediary_fields =  self.intermediary_fields,
+                                    intermediary_weights = self.intermediary_weights,
                                     mip=self.mip,
                                     pad=self.pad,
                                     crop=self.crop,
                                     bcube=chunk,
                                     softmin_temp=self.softmin_temp,
-                                    blur_sigma=self.blur_sigma) for chunk in chunks]
+                                    blur_sigma=self.blur_sigma,
+                                    subset_size=self.subset_size) for chunk in chunks]
 
         corgie_logger.debug("Yielding PairwiseVoteFieldTask for bcube: {}, MIP: {}".format(
                                 self.bcube, self.mip))
@@ -79,7 +83,8 @@ class PairwiseVoteFieldTask(scheduling.Task):
                   crop, 
                   bcube,
                   softmin_temp,
-                  blur_sigma):
+                  blur_sigma,
+                  subset_size):
         """Find median vector for each location is set of fields (ignoring identity fields).
 
         Args:
@@ -90,7 +95,8 @@ class PairwiseVoteFieldTask(scheduling.Task):
             crop (int): xy cropping
             bcbue (BoundingCube): xy range indicates chunk, z_start indicates Z
             softmin_temp (float): temperature used in voting's softmin function
-            blur_sigma (flota): std of Gaussian kernel used to blur ahead of voting
+            blur_sigma (float): std of Gaussian kernel used to blur ahead of voting
+            subset_size (int): number of vectors in a voting block 
         """
         super().__init__()
         self.pairwise_fields  = pairwise_fields
@@ -103,6 +109,7 @@ class PairwiseVoteFieldTask(scheduling.Task):
         self.bcube            = bcube
         self.softmin_temp     = softmin_temp
         self.blur_sigma       = blur_sigma
+        self.subset_size      = subset_size
 
     def execute(self):
         z = self.bcube.z[0]
@@ -128,19 +135,19 @@ class PairwiseVoteFieldTask(scheduling.Task):
                     # i.e. ::math:: f_{z^{(0)} \leftarrow z^{(0)}} = I
                     # but  ::math:: f_{z^{(t-1)} \leftarrow z^{(0)}} \neq I
                     # TODO: Introduce processing for partial identity fields
-                    f = self.pairwise_fields.read(tgt_to_src=tgt_to_src, 
+                    f = self.pairwise_fields.read(tgt_to_src=(k, k, z), 
                                                 bcube=pbcube, 
                                                 mip=self.mip)
-                    print('Using field F[{}]'.format(tgt_to_src))
+                    print('Using field F[{}]'.format((k,k,z)))
                     fields[offset] = f
             else:
                 f = self.pairwise_fields.read(tgt_to_src=(k,k), 
                                             bcube=pbcube, 
                                             mip=self.mip)
-                print('Using field F[{}]'.format(tgt_to_src))
+                print('Using field F[{}]'.format((k,z)))
                 fields[offset] = f
         
-        if self.intermedary_fields is not None:
+        if self.intermediary_fields is not None:
             for offset, field in fields.items():
                 cropped_field = helpers.crop(field, self.crop)
                 self.intermediary_fields.write(data=cropped_field,
@@ -155,7 +162,8 @@ class PairwiseVoteFieldTask(scheduling.Task):
             # med_field = fields.vote(softmin_temp=self.softmin_temp,
             #                         blur_sigma=self.blur_sigma)
             field_weights = fields.get_vote_weights(softmin_temp=self.softmin_temp,
-                                                    blur_sigma=self.blur_sigma)
+                                                    blur_sigma=self.blur_sigma,
+                                                    subset_size=self.subset_size)
             med_field = (fields * field_weights.unsqueeze(-3)).sum(dim=0, keepdim=True) 
             cropped_field = helpers.crop(med_field, self.crop)
             self.output_fields.write(data_tens=cropped_field, 
@@ -191,6 +199,7 @@ class PairwiseVoteFieldTask(scheduling.Task):
 @corgie_option('--mip',                  nargs=1, type=int, default=0)
 @corgie_option('--softmin_temp',         nargs=1, type=float, default=1)
 @corgie_option('--blur_sigma',           nargs=1, type=float, default=1)
+@corgie_option('--subset_size',          nargs=1, type=int, default=None)
 @corgie_option('--write_intermediaries/--no_intermediaries', default=False)
 @corgie_optgroup('')
 @corgie_option('--crop',                 nargs=1, type=int, default=None)
@@ -217,6 +226,7 @@ def pairwise_vote_field(ctx,
                        mip,
                        softmin_temp,
                        blur_sigma,
+                       subset_size,
                        write_intermediaries,
                        suffix):
     """Compute median pairwise displacement fields via voting
@@ -274,10 +284,10 @@ def pairwise_vote_field(ctx,
     intermediary_fields = None
     intermediary_weights = None
     if write_intermediaries:
-        intermediary_fields_dir = os.path.join(output_fields.folder, 
+        intermediary_fields_dir = os.path.join(output_fields.cv.path, 
                                                "intermediaries", 
                                                "fields")
-        intermediary_weights_dir = os.path.join(output_fields.folder, 
+        intermediary_weights_dir = os.path.join(output_fields.cv.path, 
                                                 "intermediaries", 
                                                 "weights")
         intermediary_fields = PairwiseFields(name='intermediary_fields',
@@ -312,7 +322,8 @@ def pairwise_vote_field(ctx,
             mip=mip,
             bcube=bcube,
             softmin_temp=softmin_temp,
-            blur_sigma=blur_sigma)
+            blur_sigma=blur_sigma,
+            subset_size=subset_size)
 
     # create scheduler and execute the job
     scheduler.register_job(pairwise_dot_product_job,
