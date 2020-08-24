@@ -111,6 +111,7 @@ class AlignBlockJob(scheduling.Job):
 @corgie_option('--processor_spec',      nargs=1, type=str, required=True,
         multiple=True)
 @corgie_option('--chunk_xy',      '-c', nargs=1, type=int, default=1024)
+@corgie_option('--blend_xy',             nargs=1, type=int, default=0)
 @corgie_option('--pad',                 nargs=1, type=int, default=256)
 @corgie_option('--crop',                nargs=1, type=int, default=None)
 @corgie_option('--processor_mip', '-m', nargs=1, type=int, required=True,
@@ -127,7 +128,7 @@ class AlignBlockJob(scheduling.Job):
 @click.pass_context
 def align_block(ctx, src_layer_spec, tgt_layer_spec, dst_folder, render_pad, render_chunk_xy,
         processor_spec, pad, crop, processor_mip, chunk_xy, start_coord, end_coord, coord_mip,
-        suffix, copy_start, mode, chunk_z=1):
+        blend_xy, suffix, copy_start, mode, chunk_z=1):
     scheduler = ctx.obj['scheduler']
 
     if suffix is None:
@@ -165,6 +166,7 @@ def align_block(ctx, src_layer_spec, tgt_layer_spec, dst_folder, render_pad, ren
             processor_mip=processor_mip,
             processor_spec=processor_spec,
             chunk_xy=chunk_xy,
+            blend_xy=blend_xy,
             chunk_z=1
             )
 
