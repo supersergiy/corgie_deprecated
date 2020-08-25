@@ -112,6 +112,7 @@ class AlignBlockJob(scheduling.Job):
         multiple=True)
 @corgie_option('--chunk_xy',      '-c', nargs=1, type=int, default=1024)
 @corgie_option('--blend_xy',             nargs=1, type=int, default=0)
+@corgie_option('--force_chunk_xy',  is_flag=True)
 @corgie_option('--pad',                 nargs=1, type=int, default=256)
 @corgie_option('--crop',                nargs=1, type=int, default=None)
 @corgie_option('--processor_mip', '-m', nargs=1, type=int, required=True,
@@ -128,7 +129,7 @@ class AlignBlockJob(scheduling.Job):
 @click.pass_context
 def align_block(ctx, src_layer_spec, tgt_layer_spec, dst_folder, render_pad, render_chunk_xy,
         processor_spec, pad, crop, processor_mip, chunk_xy, start_coord, end_coord, coord_mip,
-        blend_xy, suffix, copy_start, mode, chunk_z=1):
+        blend_xy, force_chunk_xy, suffix, copy_start, mode, chunk_z=1):
     scheduler = ctx.obj['scheduler']
 
     if suffix is None:
@@ -145,9 +146,10 @@ def align_block(ctx, src_layer_spec, tgt_layer_spec, dst_folder, render_pad, ren
     tgt_stack = create_stack_from_spec(tgt_layer_spec,
             name='tgt', readonly=True, reference=src_stack)
 
+    force_chunk_xy = chunk_xy if force_chunk_xy else None
     dst_stack = stack.create_stack_from_reference(reference_stack=src_stack,
             folder=dst_folder, name="dst", types=["img", "mask"], readonly=False,
-            suffix=suffix, overwrite=True)
+            suffix=suffix, force_chunk_xy=force_chunk_xy, overwrite=True)
 
     render_method = helpers.PartialSpecification(
             f=RenderJob,
