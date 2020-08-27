@@ -14,7 +14,7 @@ from corgie.cli.compute_field import ComputeFieldJob
 from corgie.cli.render import RenderJob
 from corgie.pairwise import PairwiseFields
 
-class ComputePairwiseFieldJob(scheduling.Job):
+class ComputePairwiseFieldsJob(scheduling.Job):
     def __init__(self, 
                  src_stack, 
                  tgt_stack, 
@@ -51,7 +51,6 @@ class ComputePairwiseFieldJob(scheduling.Job):
                                                    tgt_z_offset=o,
                                                    dst_layer=field)
                 yield from compute_field_job.task_generator
-                yield scheduling.wait_until_done
         # if self.render_method is not None:
         #     for z in range(z_start, z_end+1):
         #         for o in offset_range:
@@ -121,11 +120,10 @@ class ComputePairwiseFieldJob(scheduling.Job):
                nargs=1, 
                type=int, 
                default=0)
-@corgie_option('--radius',
-               '-r', 
-               nargs=1, 
-               type=int, 
-               required=True)
+@corgie_option('--offsets',      
+                nargs=1, 
+                type=str, 
+                required=True)
 
 @corgie_optgroup('Render Method Specification')
 @corgie_option('--render_img/--no_render_img',
@@ -152,7 +150,7 @@ def compute_pairwise_fields(ctx,
                             start_coord,
                             end_coord,
                             coord_mip,
-                            radius,
+                            offsets,
                             render_img,
                             render_pad,
                             render_chunk_xy,
@@ -166,7 +164,7 @@ def compute_pairwise_fields(ctx,
     src_stack = create_stack_from_spec(src_layer_spec,
                                        name='src', 
                                        readonly=True)
-    offsets = [i for i in range(-radius, radius+1) if i != 0]
+    offsets = [int(i) for i in offsets.split(',')]
     estimated_fields = PairwiseFields(name='estimated_fields',
                                       folder=estimated_fields_dir)
     estimated_fields.add_offsets(offsets, 
@@ -196,7 +194,7 @@ def compute_pairwise_fields(ctx,
                 )
     bcube = get_bcube_from_coords(start_coord, end_coord, coord_mip)
 
-    job = ComputePairwiseFieldJob(src_stack=src_stack,
+    job = ComputePairwiseFieldsJob(src_stack=src_stack,
                                     tgt_stack=src_stack,
                                     pairwise_dst=estimated_fields,
                                     cf_method=cf_method,
@@ -209,7 +207,5 @@ def compute_pairwise_fields(ctx,
     scheduler.register_job(job, job_name="Align Block {}".format(bcube))
     scheduler.execute_until_completion()
     result_report = f"Computed fields for sections " \
-                    f"{[str(l) for l in src_stack.get_layers_of_type('img')]}. " \
-                    f"Results in " \
-                    f"{[str(l) for l in dst_stack.get_layers_of_type('field')]}"
+                    f"{[str(l) for l in src_stack.get_layers_of_type('img')]}. "
     corgie_logger.info(result_report)
