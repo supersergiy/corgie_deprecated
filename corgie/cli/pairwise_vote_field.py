@@ -22,6 +22,7 @@ class PairwiseVoteFieldJob(scheduling.Job):
     def __init__(self,
                  pairwise_fields,
                  output_fields,
+                 prior_weights,
                  intermediary_fields,
                  intermediary_weights,
                  chunk_xy,
@@ -35,6 +36,7 @@ class PairwiseVoteFieldJob(scheduling.Job):
                  subset_size):
         self.pairwise_fields  = pairwise_fields   
         self.output_fields    = output_fields
+        self.prior_weights    = prior_weights
         self.intermediary_fields = intermediary_fields
         self.intermediary_weights = intermediary_weights
         self.chunk_xy         = chunk_xy
@@ -58,6 +60,7 @@ class PairwiseVoteFieldJob(scheduling.Job):
 
         tasks = [PairwiseVoteFieldTask(pairwise_fields=self.pairwise_fields,
                                     output_fields=self.output_fields,
+                                    prior_weights=self.prior_weights,
                                     intermediary_fields =  self.intermediary_fields,
                                     intermediary_weights = self.intermediary_weights,
                                     mip=self.mip,
@@ -76,6 +79,7 @@ class PairwiseVoteFieldTask(scheduling.Task):
     def __init__(self, 
                   pairwise_fields, 
                   output_fields, 
+                  prior_weights,
                   intermediary_fields,
                   intermediary_weights,
                   mip,
@@ -90,6 +94,7 @@ class PairwiseVoteFieldTask(scheduling.Task):
         Args:
             pairwise_fields (PairwiseFields): previous fields at offset=0
             output_fields (FieldLayer)
+            prior_weights (PairwiseTensor): weights of pairwise_fields [optional]
             mip (int)
             pad (int): xy padding
             crop (int): xy cropping
@@ -101,6 +106,7 @@ class PairwiseVoteFieldTask(scheduling.Task):
         super().__init__()
         self.pairwise_fields  = pairwise_fields
         self.output_fields    = output_fields
+        self.prior_weights    = prior_weights
         self.intermediary_fields = intermediary_fields
         self.intermediary_weights = intermediary_weights
         self.mip              = mip
@@ -115,7 +121,9 @@ class PairwiseVoteFieldTask(scheduling.Task):
         z = self.bcube.z[0]
         pbcube = self.bcube.uncrop(self.pad, self.mip)
         print('Filtering {}'.format(z))
-        fields = {} 
+        fields = {}
+        if self.prior_weights:
+            weights = {}
         for offset in self.pairwise_fields.offsets:
             k = z + offset
             if k != z:
@@ -140,12 +148,34 @@ class PairwiseVoteFieldTask(scheduling.Task):
                                                 mip=self.mip)
                     print('Using field F[{}]'.format((k,k,z)))
                     fields[offset] = f
+                    if self.prior_weights:
+                        # TODO: warp w by (k,k) when previous field exists
+                        g = self.pairwise_fields.read(tgt_to_src=(k, k), 
+                                                    bcube=pbcube, 
+                                                    mip=self.mip)
+                        # TODO: use more flexible profiler
+                        trans = g.mean_finite_vector(keepdim=True)
+                        trans = (trans // (2**self.mip)) * 2**self.mip
+                        tpbcube = pbcube.copy()
+                        tpbcube = tpbcube.translate(x=int(trans[0,0,0,0]), 
+                                                    y=int(trans[0,1,0,0]))
+                        g -= trans
+                        g = g.from_pixels()
+                        w = self.prior_weights.read(tgt_to_src=(k, z),
+                                                    bcube=tpbcube,
+                                                    mip=self.mip)
+                        gw = g(w) 
+                        # symmetry weights are distances, should be variances
+                        weights[offset] = gw.pow(2) 
             else:
                 f = self.pairwise_fields.read(tgt_to_src=(k,k), 
                                             bcube=pbcube, 
                                             mip=self.mip)
                 print('Using field F[{}]'.format((k,z)))
                 fields[offset] = f
+                if self.prior_weights:
+                    w = torch.zeros(1, 1, *f.shape[-2:]).to(f.device)
+                    weights[offset] = w
         
         if self.intermediary_fields is not None:
             for offset, field in fields.items():
@@ -159,9 +189,15 @@ class PairwiseVoteFieldTask(scheduling.Task):
             offsets = list(fields.keys())
             offsets.sort()
             fields = torch.cat([fields[k] for k in offsets]).field()
+            if self.prior_weights:
+                weights = torch.cat([weights[k] for k in offsets])
+            else:
+                weights = torch.zeros((len(fields), 1, *fields.shape[-2:])).to(fields.device)
             # med_field = fields.vote(softmin_temp=self.softmin_temp,
             #                         blur_sigma=self.blur_sigma)
-            field_weights = fields.get_vote_weights(softmin_temp=self.softmin_temp,
+            field_weights = fields.get_vote_weights_with_variances(
+                                                    var=weights,
+                                                    softmin_temp=self.softmin_temp,
                                                     blur_sigma=self.blur_sigma,
                                                     subset_size=self.subset_size)
             med_field = (fields * field_weights.unsqueeze(-3)).sum(dim=0, keepdim=True) 
@@ -184,6 +220,9 @@ class PairwiseVoteFieldTask(scheduling.Task):
 @corgie_option('--pairwise_fields_dir',  '-ef', nargs=1,
         type=str, required=True, 
         help='Root directory of fields aligning each section to each neighbor.')
+@corgie_option('--prior_weights_dir',  nargs=1,
+        type=str, required=False, 
+        help='Weights of pairwise fields root directory.')
 @corgie_option('--previous_fields_spec',  nargs=1,
         type=str, required=False, multiple=False,
         help='Spec for previous fields for transforming each section.')
@@ -213,6 +252,7 @@ class PairwiseVoteFieldTask(scheduling.Task):
 @click.pass_context
 def pairwise_vote_field(ctx, 
                        pairwise_fields_dir, 
+                       prior_weights_dir,
                        previous_fields_spec,
                        output_fields_spec, 
                        offsets,
@@ -254,12 +294,29 @@ def pairwise_vote_field(ctx,
     pairwise_fields.add_offsets(nonzero_offsets, 
                                 readonly=True, 
                                 suffix=suffix)
+    weight_info = deepcopy(pairwise_fields.get_info())
+    weight_info['num_channels'] = 1
+    # dummy object for get_info() method
+    ref_path = 'file:///tmp/cloudvolume/empty_fields' 
+    weight_ref = MiplessCloudVolume(path=ref_path,
+                            info=weight_info,
+                            overwrite=False)
     output_fields = create_layer_from_spec(output_fields_spec, 
                                            name=0,
                                            default_type='field', 
                                            readonly=False, 
                                            reference=pairwise_fields, 
                                            overwrite=True)
+
+    prior_weights = None
+    if prior_weights_dir:
+        prior_weights = PairwiseTensors(name='weights',
+                                folder=prior_weights_dir)
+        prior_weights.add_offsets(offsets, 
+                            readonly=False, 
+                            reference=weight_ref,
+                            dtype='float32',
+                            overwrite=True)
     # add previous_fields at offset=0 in pairwise_fields for easy composing
     if previous_fields_spec is None:
         ref = deepcopy(pairwise_fields.reference_layer.cv)
@@ -296,12 +353,6 @@ def pairwise_vote_field(ctx,
                                     readonly=False, 
                                     reference=pairwise_fields,
                                     overwrite=True)
-        weight_info = deepcopy(pairwise_fields.get_info())
-        weight_info['num_channels'] = 1
-        # dummy object for get_info() method
-        weight_ref = MiplessCloudVolume(path='file://tmp/cloudvolume/empty',
-                                info=weight_info,
-                                overwrite=False)
         intermediary_weights = PairwiseTensors(name='intermediary_weights',
                                             folder=intermediary_weights_dir)
         intermediary_weights.add_offsets(offsets, 
@@ -313,6 +364,7 @@ def pairwise_vote_field(ctx,
     pairwise_dot_product_job = PairwiseVoteFieldJob(
             pairwise_fields=pairwise_fields,
             output_fields=output_fields,
+            prior_weights=prior_weights,
             intermediary_fields=intermediary_fields,
             intermediary_weights=intermediary_weights,
             chunk_xy=chunk_xy,
