@@ -34,6 +34,8 @@ from corgie.cli.pairwise_normalize import pairwise_normalize
 COMMAND_LIST.append(pairwise_normalize)
 from corgie.cli.pairwise_vote_field import pairwise_vote_field 
 COMMAND_LIST.append(pairwise_vote_field)
+from corgie.cli.pairwise_symmetry import pairwise_symmetry 
+COMMAND_LIST.append(pairwise_symmetry)
 
 # To add new commands, create a file in this folder implementing a command,
 # import the command here and add it to the list:
