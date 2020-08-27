@@ -120,6 +120,11 @@ class ComputeFieldTask(scheduling.Task):
     def execute(self):
         src_bcube = self.bcube.uncrop(self.pad, self.mip)
         tgt_bcube = src_bcube.translate(z=self.tgt_z_offset)
+        corgie_logger.debug('ComputeField, src: {} @ {}, tgt: {} @ {}'.format(
+                                                                self.src_stack.name,
+                                                                src_bcube,
+                                                                self.tgt_stack.name,
+                                                                tgt_bcube))
 
         processor = procspec.parse_proc(
                 spec_str=self.processor_spec)
