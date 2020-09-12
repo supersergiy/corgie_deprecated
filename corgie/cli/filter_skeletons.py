@@ -52,11 +52,15 @@ class FilterSkeletonsJob(scheduling.Job):
         dst_path,
         skeleton_ids,
         bad_sections,
-        skeleton_length_file=None,
+        z_start,
+        z_end,
+        skeleton_length_file=None
     ):
         self.src_path = src_path
         self.dst_path = dst_path
         self.bad_sections = bad_sections
+        self.z_start = z_start
+        self.z_end = z_end
 
         if skeleton_ids is None:
             self.skeleton_ids = self.get_all_skeleton_ids()
@@ -67,11 +71,16 @@ class FilterSkeletonsJob(scheduling.Job):
 
     def task_generator(self):
         skeletons = self.get_skeletons(self.src_path)
-        bbox = Bbox((0, 0, 17501*40), (10e8, 10e8, 17999*40))
+        if self.z_start is not None and self.z_end is not None:
+            bbox = Bbox((0, 0, self.z_start*40), (10e8, 10e8, self.z_end*40))
+        else:
+            bbox = None
 
+        lengths = []
         for skeleton_id_str, sk in skeletons.items():
             deleted = 1
-            sk = sk.crop(bbox)
+            if bbox is not None:
+                sk = sk.crop(bbox)
             while deleted != 0:
                 deleted = 0
                 verts = sk.vertices
@@ -113,14 +122,15 @@ class FilterSkeletonsJob(scheduling.Job):
             vert_zs = vert_zs.astype(np.int32)
             bad_verts = np.where(np.isin(vert_zs, self.bad_sections))[0]
 
-            print (skeleton_id_str, sk.cable_length())
+            lengths.append((skeleton_id_str, sk.cable_length()))
             cf = CloudFiles(self.dst_path)
             cf.put(
                 path=skeleton_id_str,
                 content=sk.to_precomputed(),
                 compress="gzip",
             )
-
+        for n, l in sorted(lengths):
+            print (l)
         import sys; sys.exit(1)
                 #print (len(bad_verts))
                 #print (sk.vertices.shape)
@@ -169,6 +179,9 @@ class FilterSkeletonsJob(scheduling.Job):
 )
 @corgie_optgroup("Misc Parameters")
 @corgie_option("--bad_sections", '-b', multiple=True, type=int, help="Bad sections to filter out")
+@corgie_option("--bad_sections", '-b', multiple=True, type=int, help="Bad sections to filter out")
+@corgie_option("--z_start", type=int, default=None)
+@corgie_option("--z_end", type=int, default=None)
 @corgie_option("--ids", multiple=True, type=int, help="Ids to transform")
 @corgie_option("--ids_filepath", type=str, help="File containing ids to transform")
 
@@ -180,6 +193,8 @@ def filter_skeletons(
             ids,
             bad_sections,
             ids_filepath,
+            z_start,
+            z_end
         ):
     scheduler = ctx.obj["scheduler"]
 
@@ -204,7 +219,9 @@ def filter_skeletons(
         src_path=src_folder,
         dst_path=dst_folder,
         skeleton_ids=skeleton_ids,
-        bad_sections=bad_sections
+        bad_sections=bad_sections,
+        z_start=z_start,
+        z_end=z_end
     )
 
     scheduler.register_job(
