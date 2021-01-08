@@ -32,10 +32,12 @@ class VolumetricLayer(BaseLayerType):
                 for _ in range(mip, self.data_mip):
                     result = self.get_upsampler()(result)
             else:
-                result_raw = super().read(bcube=indexed_bcube, mip=mip, **kwargs)
-                result = torch.zeros_like(result_raw, device=result_raw.device)
-                #raise exceptions.CorgieException(f"Attempting to read from higher MIP (MIP {mip}) "
-                #        f"than the declared data MIP (MIP {self.data_mip}) for {str(self)}")
+                # TODO: consider restricting MIP difference to prevent memory blow-up
+                result_data_mip = super().read(bcube=indexed_bcube,
+                        mip=self.data_mip, **kwargs)
+                result = result_data_mip
+                for _ in range(self.data_mip, mip):
+                    result = self.get_downsampler()(result)
         else:
             result = super().read(bcube=indexed_bcube, mip=mip, **kwargs)
 
