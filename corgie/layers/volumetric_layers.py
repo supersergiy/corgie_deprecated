@@ -31,6 +31,13 @@ class VolumetricLayer(BaseLayerType):
                 result = result_data_mip
                 for _ in range(mip, self.data_mip):
                     result = self.get_upsampler()(result)
+            elif mip > self.data_mip:
+                # TODO: consider restricting MIP difference to prevent memory blow-up
+                result_data_mip = super().read(bcube=indexed_bcube,
+                        mip=self.data_mip, **kwargs)
+                result = result_data_mip
+                for _ in range(self.data_mip, mip):
+                    result = self.get_downsampler()(result)
             else:
                 result_raw = super().read(bcube=indexed_bcube, mip=mip, **kwargs)
                 result = torch.zeros_like(result_raw, device=result_raw.device)
