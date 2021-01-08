@@ -178,16 +178,18 @@ def merge_copy(ctx,
     bcube = get_bcube_from_coords(start_coord, end_coord, coord_mip)
 
     for z in range(*bcube.z_range()):
-        src_dict = spec[str(z)]
-        job_bcube = bcube.reset_coords(zs=z, ze=z+1, in_place=False)
-        src_stack = src_stacks[src_dict['cv_path']]
-        z_list = src_dict['z_list']
-        copy_job = MergeCopyJob(src_stack=src_stack,
-                           dst_stack=dst_stack,
-                           mip=mip,
-                           bcube=job_bcube,
-                           chunk_xy=chunk_xy,
-                           z_list=z_list)
-        # create scheduler and execute the job
-        scheduler.register_job(copy_job, job_name="MergeCopy {}".format(job_bcube))
+        spec_z = str(z)
+        if spec_z in spec.keys():
+            src_dict = spec[str(z)]
+            job_bcube = bcube.reset_coords(zs=z, ze=z+1, in_place=False)
+            src_stack = src_stacks[src_dict['cv_path']]
+            z_list = src_dict['z_list']
+            copy_job = MergeCopyJob(src_stack=src_stack,
+                               dst_stack=dst_stack,
+                               mip=mip,
+                               bcube=job_bcube,
+                               chunk_xy=chunk_xy,
+                               z_list=z_list)
+            # create scheduler and execute the job
+            scheduler.register_job(copy_job, job_name="MergeCopy {}".format(job_bcube))
     scheduler.execute_until_completion()
