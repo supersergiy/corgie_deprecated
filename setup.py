@@ -33,7 +33,8 @@ setuptools.setup(
       'scikit-image',
       'h5py',
       'kimimaro',
-      'docutils==0.15.0'
+      'docutils==0.15.0',
+      'opencv-python'
     ],
     entry_points={
         "console_scripts": [
