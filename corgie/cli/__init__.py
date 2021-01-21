@@ -30,6 +30,8 @@ from corgie.cli.filter_skeletons import filter_skeletons
 COMMAND_LIST.append(filter_skeletons)
 from corgie.cli.merge_copy import merge_copy
 COMMAND_LIST.append(merge_copy)
+from corgie.cli.compute_field_by_spec import compute_field_by_spec
+COMMAND_LIST.append(compute_field_by_spec)
 
 # To add new commands, create a file in this folder implementing a command,
 # import the command here and add it to the list:
