@@ -174,7 +174,7 @@ def apply_processor(ctx, src_layer_spec, dst_layer_spec,
     if reference_key in src_stack.layers:
         reference_layer = src_stack.layers[reference_key]
 
-    dst_layer = create_layer_from_spec(dst_layer_spec, allowed_types=['img'],
+    dst_layer = create_layer_from_spec(dst_layer_spec, allowed_types=['img','mask'],
             default_type='img', readonly=False, caller_name='dst_layer',
             reference=reference_layer, overwrite=True)
 
