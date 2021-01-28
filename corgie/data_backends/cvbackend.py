@@ -60,7 +60,8 @@ class CVLayerBase(BaseLayerBackend):
                     scale['chunk_sizes'][0][1] = force_chunk_xy
 
         self.cv = MiplessCloudVolume(path,
-                info=info, overwrite=overwrite)
+                info=info, overwrite=overwrite,
+                **kwargs)
 
         self.dtype = info['data_type']
 
