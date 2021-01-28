@@ -50,16 +50,18 @@ class MiplessCloudVolume():
         self.path = path
         self.allow_info_writes = allow_info_writes
         self.cv_params = {}
-        self.cv_params['bounded'] = False
-        self.cv_params['progress'] = False
-        self.cv_params['autocrop'] = False
-        self.cv_params['non_aligned_writes'] = False
-        self.cv_params['cdn_cache'] = False
-        self.cv_params['fill_missing'] = True
-        self.cv_params['agglomerate'] = True
+        if 'cv_params' in kwargs:
+            self.cv_params.update(kwargs['cv_params'])
+        self.cv_params.setdefault('bounded', False)
+        self.cv_params.setdefault('progress', False)
+        self.cv_params.setdefault('autocrop', False)
+        self.cv_params.setdefault('non_aligned_writes', False)
+        self.cv_params.setdefault('cdn_cache', False)
+        self.cv_params.setdefault('fill_missing', True)
+        self.cv_params.setdefault('agglomerate', True)
 
-        for k, v in six.iteritems(kwargs):
-            self.cv_params[k] = v
+        # for k, v in six.iteritems(kwargs):
+        #     self.cv_params[k] = v
 
         self.default_chunk = default_chunk
 
