@@ -5,12 +5,15 @@ from corgie.log import logger as corgie_logger
 from corgie.layers import get_layer_types, DEFAULT_LAYER_TYPE, \
                              str_to_layer_type
 from corgie.boundingcube import get_bcube_from_coords
+from corgie.stack import Stack
 
 from corgie.argparsers import LAYER_HELP_STR, \
         create_layer_from_spec, corgie_optgroup, corgie_option, \
         create_stack_from_spec
 from corgie.cli.compute_field import ComputeFieldJob
 import json
+from copy import deepcopy
+import numpy as np
 
 @click.command()
 @corgie_optgroup('Layer Parameters')
@@ -22,10 +25,9 @@ import json
         type=str, required=True, multiple=True,
         help='Target layer spec. Use multiple times to include all masks, fields, images. '\
                 'DEFAULT: Same as source layers')
-@corgie_option('--dst_layer_spec', '-t', nargs=1,
-        type=str, required=True, 
-        help= 'Specification for the destination layer. Must be a field type.' + \
-                ' DEFAULT: source reference key path + /field/cf_field + (_{suffix})?')
+@corgie_option('--dst_folder',  nargs=1,
+        type=str, required=True,
+        help= "Folder where rendered stack will go")
 @corgie_option('--spec_path',  nargs=1,
         type=str, required=True,
         help= "JSON spec relating src stacks, src z to dst z")
@@ -50,7 +52,7 @@ import json
 def compute_field_by_spec(ctx, 
          src_layer_spec, 
          tgt_layer_spec,
-         dst_layer_spec,
+         dst_folder,
          spec_path,
          chunk_xy, 
          pad,
@@ -70,15 +72,10 @@ def compute_field_by_spec(ctx,
         suffix = f"_{suffix}"
 
     corgie_logger.debug("Setting up layers...")
-    assert(len(src_layer_spec) % 2 == 0)
-    src_stacks = {}
-    for k in range(len(src_layer_spec) // 2):
-        src_stack = create_stack_from_spec(src_layer_spec[2*k:2*k+2],
-                                            name='src', 
-                                            readonly=True)
-        name = src_stack.get_layers_of_type('img')[0].path
-        src_stacks[name] = src_stack
-
+    src_stack = create_stack_from_spec(src_layer_spec,
+                                        name='src', 
+                                        readonly=True)
+    src_path_to_name = {l.path: l.name for l in src_stack.get_layers()}
     tgt_stack = create_stack_from_spec(tgt_layer_spec,
                                        name='tgt', 
                                        readonly=True)
@@ -98,29 +95,43 @@ def compute_field_by_spec(ctx,
     if crop is None:
         crop = pad
 
-    reference_layer = src_stack.layers['img']
-    dst_layer = create_layer_from_spec(dst_layer_spec, 
-                                       allowed_types=['field'],
-                                       default_type='field', 
-                                       readonly=False, 
-                                       caller_name='dst_layer',
-                                       reference=reference_layer, 
-                                       overwrite=True)
+    reference_layer = src_stack.get_layers_of_type('img')[0]
+    mask_ids = np.unique([s['mask_id'] for v in spec.values() for s in v])
+    dst_layers = {}
+    for mask_id in mask_ids:
+        dst_spec = {'path': deepcopy(dst_folder) + '/' + str(mask_id)}
+        dst_layer = create_layer_from_spec(json.dumps(dst_spec),
+                                        allowed_types=['field'],
+                                        default_type='field', 
+                                        readonly=False, 
+                                        caller_name='dst_layer',
+                                        reference=reference_layer, 
+                                        overwrite=True)
+        dst_layers[mask_id] = dst_layer
 
     bcube = get_bcube_from_coords(start_coord, end_coord, coord_mip)
 
     for tgt_z in range(*bcube.z_range()):
         spec_z = str(tgt_z)
         if spec_z in spec.keys():
-            src_dict = spec[spec_z]
-            src_stack = src_stacks[src_dict['cv_path']]
-            src_z_list = src_dict['z_list']
-            for src_z in src_z_list:
-                job_bcube = bcube.reset_coords(zs=src_z, 
-                                               ze=src_z+1, 
+            src_list = spec[spec_z]
+            for src_spec in src_list:
+                src_stack_subset = Stack()
+                cv_paths = [src_spec['img_cv'], src_spec['mask_cv']]
+                src_layers = [src_stack.layers[src_path_to_name[p]] for p in cv_paths]
+                for l in src_layers:
+                    l.name = l.get_layer_type()
+                    src_stack_subset.add_layer(l)
+                dst_layer = dst_layers[src_spec['mask_id']]
+                ps = json.loads(processor_spec[0])
+                ps["ApplyModel"]["params"]["val"] = src_spec["mask_id"]
+                processor_spec = (json.dumps(ps), )
+                job_bcube = bcube.reset_coords(zs=src_spec['img_z'], 
+                                               ze=src_spec['img_z']+1, 
                                                in_place=False)
+                tgt_z_offset = tgt_z - src_spec['img_z']
                 compute_field_job = ComputeFieldJob(
-                        src_stack=src_stack,
+                        src_stack=src_stack_subset,
                         tgt_stack=tgt_stack,
                         dst_layer=dst_layer,
                         chunk_xy=chunk_xy,
@@ -130,11 +141,11 @@ def compute_field_by_spec(ctx,
                         pad=pad,
                         crop=crop,
                         bcube=job_bcube,
-                        tgt_z_offset=tgt_z-src_z, 
+                        tgt_z_offset=tgt_z_offset,
                         suffix=suffix,
                         processor_mip=processor_mip,
                         clear_nontissue_field=clear_nontissue_field
                         )
                 scheduler.register_job(compute_field_job, 
-                            job_name="ComputeField {}".format(job_bcube))
+                    job_name="ComputeField {},{}".format(job_bcube, src_spec['mask_id']))
     scheduler.execute_until_completion()
