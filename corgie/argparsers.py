@@ -31,7 +31,11 @@ LAYER_HELP_STR = """
    """.format(get_layer_types(), get_data_backends())
 
    #\t "data_mip_ranges": array of [int, int] tupples specifying MIP ranges where the layer has data. DEFAULT -- all MIPs have data.\n
-def create_layer_from_spec(spec_str, reference=None, caller_name=None,
+
+def create_layer_from_spec(spec_str, **kwargs):
+    return create_layer_from_dict(json.loads(spec_str), **kwargs)
+
+def create_layer_from_dict(param_dict, reference=None, caller_name=None,
         allowed_types=None, default_type=None, **kwargs):
     if default_type is None:
         default_type = DEFAULT_LAYER_TYPE
@@ -43,7 +47,6 @@ def create_layer_from_spec(spec_str, reference=None, caller_name=None,
             "args": {},
             "readonly": False
             }
-    param_dict = json.loads(spec_str)
     for k in param_dict.keys():
         if k not in default_param_dict:
             raise exceptions.CorgieException(f"Unkown layer parameter '{k}'")
