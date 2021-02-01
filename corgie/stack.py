@@ -31,6 +31,12 @@ class StackBase:
     def remove_layer(self, layer_name):
         del self.layers[layer_name]
 
+    def __contains__(self, m):
+        return m in self.layers.keys()
+
+    def __getitem__(self, m):
+        return self.layers[m]
+
     def read_data_dict(self, **index):
         result = {}
         for l in layers:
