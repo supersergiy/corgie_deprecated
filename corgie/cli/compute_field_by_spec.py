@@ -34,6 +34,7 @@ import numpy as np
 
 @corgie_optgroup('Copy Method Specification')
 @corgie_option('--chunk_xy',       '-c', nargs=1, type=int, default=1024)
+@corgie_option('--blend_xy',             nargs=1, type=int, default=0)
 @corgie_option('--pad',                  nargs=1, type=int, default=512)
 @corgie_option('--crop',                 nargs=1, type=int, default=None)
 @corgie_option('--processor_spec',       nargs=1, type=str, multiple=True,
@@ -55,6 +56,7 @@ def compute_field_by_spec(ctx,
          dst_folder,
          spec_path,
          chunk_xy, 
+         blend_xy,
          pad,
          crop,
          processor_spec,
@@ -117,7 +119,7 @@ def compute_field_by_spec(ctx,
             src_list = spec[spec_z]
             for src_spec in src_list:
                 src_stack_subset = Stack()
-                cv_paths = [src_spec['img_cv'], src_spec['mask_cv']]
+                cv_paths = [src_spec['img'], src_spec['mask']]
                 src_layers = [src_stack.layers[src_path_to_name[p]] for p in cv_paths]
                 for l in src_layers:
                     l.name = l.get_layer_type()
@@ -136,7 +138,7 @@ def compute_field_by_spec(ctx,
                         dst_layer=dst_layer,
                         chunk_xy=chunk_xy,
                         chunk_z=1,
-                        blend_xy=0,
+                        blend_xy=blend_xy,
                         processor_spec=processor_spec,
                         pad=pad,
                         crop=crop,
