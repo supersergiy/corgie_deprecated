@@ -103,7 +103,7 @@ class MergeRenderTask(scheduling.Task):
                     layer.binarizer = helpers.Binarizer(['eq', mask_id])
                 imgs[name] = layer.read(bcube=bcube, mip=self.mip)
             mask = residuals.res_warp_img(imgs['mask'].float(), imgs['field'])
-            mask = (mask > 0.4).byte()
+            mask = (mask > 0.4).bool()
             cropped_mask = helpers.crop(mask, self.pad)
             img = residuals.res_warp_img(imgs['img'].float(), imgs['field'])
             cropped_img = helpers.crop(img, self.pad)
