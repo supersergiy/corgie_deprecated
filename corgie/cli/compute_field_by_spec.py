@@ -5,11 +5,12 @@ from corgie.log import logger as corgie_logger
 from corgie.layers import get_layer_types, DEFAULT_LAYER_TYPE, \
                              str_to_layer_type
 from corgie.boundingcube import get_bcube_from_coords
-from corgie.stack import Stack
 
 from corgie.argparsers import LAYER_HELP_STR, \
-        create_layer_from_spec, corgie_optgroup, corgie_option, \
-        create_layer_from_dict 
+        create_layer_from_spec, corgie_optgroup, corgie_option
+from corgie.spec import spec_to_stack, spec_to_layer_dict_readonly, \
+                        spec_to_layer_dict_overwrite
+
 from corgie.cli.compute_field import ComputeFieldJob
 import json
 from copy import deepcopy
@@ -20,9 +21,6 @@ import numpy as np
 @corgie_option('--spec_path',  nargs=1,
         type=str, required=True,
         help= "JSON spec relating src stacks, src z to dst z")
-@corgie_option('--dst_folder',  nargs=1,
-        type=str, required=True,
-        help= "Folder where rendered stack will go")
 
 @corgie_optgroup('Copy Method Specification')
 @corgie_option('--chunk_xy',       '-c', nargs=1, type=int, default=1024)
@@ -44,7 +42,6 @@ import numpy as np
 @click.pass_context
 def compute_field_by_spec(ctx, 
          spec_path,
-         dst_folder,
          chunk_xy, 
          blend_xy,
          pad,
@@ -66,13 +63,8 @@ def compute_field_by_spec(ctx,
     with open(spec_path, 'r') as f:
         spec = json.load(f)
 
-    src_layers = {}
-    for k, s in spec['src'].items():
-        src_layers[k] = create_layer_from_dict(s, readonly=True)
-
-    tgt_layers = {}
-    for k, s in spec['tgt'].items():
-        tgt_layers[k] = create_layer_from_dict(s, readonly=True)
+    src_layers = spec_to_layer_dict_readonly(spec['src'])
+    tgt_layers = spec_to_layer_dict_readonly(spec['tgt'])
 
     # if force_chunk_xy:
     #     force_chunk_xy = chunk_xy
@@ -87,25 +79,11 @@ def compute_field_by_spec(ctx,
         crop = pad
 
     reference_layer = src_layers[list(src_layers.keys())[0]]
-    dst_layers = {}
-    for k, s in spec['dst'].items():
-        dst_layers[k] = create_layer_from_spec(json.dumps(s),
-                                        allowed_types=['field'],
-                                        default_type='field', 
-                                        readonly=False, 
-                                        caller_name='dst_layer',
-                                        reference=reference_layer, 
-                                        overwrite=True)
+    dst_layers = spec_to_layer_dict_overwrite(spec['dst'],
+                                        reference_layer=reference_layer,
+                                        default_type='field')
 
     bcube = get_bcube_from_coords(start_coord, end_coord, coord_mip)
-
-    def spec_to_stack(spec, prefix, layers):
-        stack = Stack()
-        for suffix in ['img', 'mask']:
-            spec_key = '{}_{}'.format(prefix, suffix)
-            if spec_key in spec.keys():
-                stack.add_layer(layers[spec[spec_key]])
-        return stack
 
     for dst_z in range(*bcube.z_range()):
         spec_z = str(dst_z)
@@ -113,7 +91,7 @@ def compute_field_by_spec(ctx,
             for job_spec in spec['job_specs'][spec_z]:
                 src_stack = spec_to_stack(job_spec, 'src', src_layers)
                 tgt_stack = spec_to_stack(job_spec, 'tgt', tgt_layers)
-                dst_layer = dst_layers[job_spec['dst_img']]
+                dst_layer = dst_layers[str(job_spec['dst_img'])]
                 ps = json.loads(processor_spec[0])
                 ps["ApplyModel"]["params"]["val"] = job_spec["mask_id"]
                 ps["ApplyModel"]["params"]["scale"] = job_spec["scale"]

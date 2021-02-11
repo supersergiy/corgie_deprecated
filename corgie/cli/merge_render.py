@@ -9,6 +9,7 @@ from corgie.stack import Stack
 
 from corgie.argparsers import LAYER_HELP_STR, \
         create_layer_from_dict, corgie_optgroup, corgie_option
+from corgie.spec import spec_to_layer_dict_readonly
 import json
 
 class MergeRenderJob(scheduling.Job):
@@ -93,19 +94,21 @@ class MergeRenderTask(scheduling.Task):
     def execute(self):
         padded_bcube = self.bcube.uncrop(self.pad, self.mip)
         for k, specs in enumerate(self.src_specs[::-1]):
-            z = specs['z']
+            z = specs['src_z']
             mask_id = specs['mask_id']
             bcube = padded_bcube.reset_coords(zs=z, ze=z+1, in_place=False)
             imgs = {}
-            for name in ['img', 'mask', 'field']:
-                layer = self.src_layers[specs[name]]
-                if name == 'mask':
+            for name in ['src_img', 'src_mask', 'src_field']:
+                layer = self.src_layers[str(specs[name])]
+                if name == 'src_mask':
                     layer.binarizer = helpers.Binarizer(['eq', mask_id])
                 imgs[name] = layer.read(bcube=bcube, mip=self.mip)
-            mask = residuals.res_warp_img(imgs['mask'].float(), imgs['field'])
+            mask = residuals.res_warp_img(imgs['src_mask'].float(), 
+                                          imgs['src_field'])
             mask = (mask > 0.4).bool()
             cropped_mask = helpers.crop(mask, self.pad)
-            img = residuals.res_warp_img(imgs['img'].float(), imgs['field'])
+            img = residuals.res_warp_img(imgs['src_img'].float(), 
+                                         imgs['src_field'])
             cropped_img = helpers.crop(img, self.pad)
             if k == 0:
                 dst_img = cropped_img
@@ -160,10 +163,7 @@ def merge_render(ctx,
     with open(spec_path, 'r') as f:
         spec = json.load(f)
 
-    src_layers = {}
-    for k, s in spec['src'].items():
-        src_layers[k] = create_layer_from_dict(s, readonly=True)
-
+    src_layers = spec_to_layer_dict_readonly(spec['src'])
     reference_layer = src_layers[list(src_layers.keys())[0]]
     dst_layer = create_layer_from_dict({'path': dst_folder, 
                                         'type': 'img'},
@@ -178,7 +178,7 @@ def merge_render(ctx,
             job_bcube = bcube.reset_coords(zs=z, ze=z+1, in_place=False)
             render_job = MergeRenderJob(
                             src_layers=src_layers,
-                            src_specs=spec[tgt_z],
+                            src_specs=spec['job_specs'][tgt_z],
                             dst_layer=dst_layer,
                             mip=mip,
                             pad=pad,
