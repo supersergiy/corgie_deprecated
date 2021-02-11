@@ -160,18 +160,9 @@ def merge_render(ctx,
     with open(spec_path, 'r') as f:
         spec = json.load(f)
 
-    # collect {path: Layer}
     src_layers = {}
-    for _, src_specs in spec.items():
-        for src_spec in src_specs:
-            for name in ['img','field','mask']:
-                src_path = src_spec[name]
-                if src_path not in src_layers:                        
-                    s = {'path': src_path, 'type': name}
-                    if name == 'mask':
-                        s['args'] = {'data_mip': 6}
-                    l = create_layer_from_dict(s, readonly=True)
-                    src_layers[src_path] = l
+    for k, s in spec['src'].items():
+        src_layers[k] = create_layer_from_dict(s, readonly=True)
 
     reference_layer = src_layers[list(src_layers.keys())[0]]
     dst_layer = create_layer_from_dict({'path': dst_folder, 
@@ -183,7 +174,7 @@ def merge_render(ctx,
 
     for z in range(*bcube.z_range()):
         tgt_z = str(z)
-        if tgt_z in spec.keys():
+        if tgt_z in spec['job_specs'].keys():
             job_bcube = bcube.reset_coords(zs=z, ze=z+1, in_place=False)
             render_job = MergeRenderJob(
                             src_layers=src_layers,
