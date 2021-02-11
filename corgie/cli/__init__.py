@@ -34,6 +34,8 @@ from corgie.cli.compute_field_by_spec import compute_field_by_spec
 COMMAND_LIST.append(compute_field_by_spec)
 from corgie.cli.merge_render import merge_render
 COMMAND_LIST.append(merge_render)
+from corgie.cli.apply_processor_by_spec import apply_processor_by_spec
+COMMAND_LIST.append(apply_processor_by_spec)
 
 # To add new commands, create a file in this folder implementing a command,
 # import the command here and add it to the list:
