@@ -12,7 +12,7 @@ from corgie.argparsers import LAYER_HELP_STR, \
         create_stack_from_spec
 
 from corgie.cli.common import ChunkedJob
-from corgie.apply_processor import ApplyProcessorJob
+from corgie.cli.apply_processor import ApplyProcessorJob
 import json
 
 @click.command()
@@ -51,9 +51,21 @@ import json
 
 
 @click.pass_context
-def apply_processor(ctx, src_layer_spec, spec_path, dst_layer_spec,
-        processor_spec, pad, crop, chunk_xy, start_coord, processor_mip,
-        end_coord, coord_mip, blend_xy, chunk_z, reference_key):
+def apply_processor_by_spec(ctx,
+                    src_layer_spec,
+                    spec_path,
+                    dst_layer_spec,
+                    processor_spec,
+                    pad,
+                    crop,
+                    chunk_xy,
+                    start_coord, 
+                    processor_mip,
+                    end_coord,
+                    coord_mip,
+                    blend_xy,
+                    chunk_z,
+                    reference_key):
     scheduler = ctx.obj['scheduler']
 
     corgie_logger.debug("Setting up layers...")
@@ -77,7 +89,7 @@ def apply_processor(ctx, src_layer_spec, spec_path, dst_layer_spec,
         crop = pad
 
     for z in range(*bcube.z_range()):
-        if z in spec.keys():
+        if z in spec:
             job_bcube = bcube.reset_coords(zs=z, ze=z+1, in_place=False)
             apply_processor_job = ApplyProcessorJob(
                     src_stack=src_stack,

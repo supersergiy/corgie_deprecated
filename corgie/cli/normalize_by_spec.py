@@ -13,7 +13,8 @@ from corgie.cli.compute_stats import ComputeStatsJob
 from corgie.argparsers import LAYER_HELP_STR, \
         create_layer_from_spec, corgie_optgroup, corgie_option, \
         create_stack_from_spec
-from corgie.normalize import Normalize
+from corgie.cli.normalize import NormalizeJob
+import json
 
 @click.command()
 @corgie_optgroup('Layer Parameters')
@@ -44,10 +45,9 @@ from corgie.normalize import Normalize
 @corgie_option('--end_coord',        nargs=1, type=str, required=True)
 @corgie_option('--coord_mip',        nargs=1, type=int, default=0)
 @click.pass_context
-def normalize(ctx, 
+def normalize_by_spec(ctx, 
             src_layer_spec,
-            dst_folder,
-            stats_mip,
+            spec_path,
             dst_folder,
             stats_mip,
             mip_start,
@@ -81,9 +81,9 @@ def normalize(ctx,
     src_stack = create_stack_from_spec(src_layer_spec,
             name='src', readonly=True)
 
-    dst_stack = stack.create_stack_from_reference(reference_stack=src_stack,
-            folder=dst_folder, name="dst", types=["img"], readonly=False,
-            suffix=suffix, overwrite=True)
+    # dst_stack = stack.create_stack_from_reference(reference_stack=src_stack,
+    #         folder=dst_folder, name="dst", types=["img"], readonly=False,
+    #         suffix=suffix, overwrite=True)
 
     bcube = get_bcube_from_coords(start_coord, end_coord, coord_mip)
 
@@ -105,18 +105,22 @@ def normalize(ctx,
                 layer_type="section_value")
 
         if recompute_stats:
-            compute_stats_job = ComputeStatsJob(
-                   src_layer=l,
-                   mask_layers=mask_layers,
-                   mean_layer=mean_layer,
-                   var_layer=var_layer,
-                   bcube=bcube,
-                   mip=stats_mip,
-                   chunk_xy=chunk_xy,
-                   chunk_z=chunk_z)
+            for z in range(*bcube.z_range()):
+                if z in spec:
+                    job_bcube = bcube.reset_coords(zs=z, ze=z+1, in_place=False)
+                    compute_stats_job = ComputeStatsJob(
+                        src_layer=l,
+                        mask_layers=mask_layers,
+                        mean_layer=mean_layer,
+                        var_layer=var_layer,
+                        bcube=job_bcube,
+                        mip=stats_mip,
+                        chunk_xy=chunk_xy,
+                        chunk_z=chunk_z)
 
-        # create scheduler and execute the job
-            scheduler.register_job(compute_stats_job, job_name=f"Compute Stats. Layer: {l}, Bcube: {bcube}")
+                    # create scheduler and execute the job
+                    scheduler.register_job(compute_stats_job, 
+                                job_name=f"Compute Stats. Layer: {l}, Bcube: {job_bcube}")
             scheduler.execute_until_completion()
 
         dst_layer = l.get_sublayer(
@@ -128,7 +132,7 @@ def normalize(ctx,
                     )
 
         for z in range(*bcube.z_range()):
-            if z in spec.keys():
+            if z in spec:
                 job_bcube = bcube.reset_coords(zs=z, ze=z+1, in_place=False)
                 result_report += f"Normalized {l} -> {dst_layer}\n"
                 for mip in range(mip_start, mip_end + 1):
@@ -139,12 +143,13 @@ def normalize(ctx,
                             var_layer=var_layer,
                             stats_mip=stats_mip,
                             mip=mip,
-                            bcube=bcube,
+                            bcube=job_bcube,
                             chunk_xy=chunk_xy,
                             chunk_z=chunk_z,
                             mask_value=mask_value)
 
                     # create scheduler and execute the job
-                    scheduler.register_job(normalize_job, job_name=f"Normalize {bcube}, MIP {mip}")
+                    scheduler.register_job(normalize_job, 
+                                job_name=f"Normalize {job_bcube}, MIP {mip}")
     scheduler.execute_until_completion()
     corgie_logger.info(result_report)
