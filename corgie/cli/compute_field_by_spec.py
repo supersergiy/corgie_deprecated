@@ -9,7 +9,7 @@ from corgie.stack import Stack
 
 from corgie.argparsers import LAYER_HELP_STR, \
         create_layer_from_spec, corgie_optgroup, corgie_option, \
-        create_stack_from_spec
+        create_layer_from_dict 
 from corgie.cli.compute_field import ComputeFieldJob
 import json
 from copy import deepcopy
