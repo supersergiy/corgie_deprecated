@@ -10,6 +10,7 @@ from corgie.stack import Stack
 from corgie.argparsers import LAYER_HELP_STR, \
         create_layer_from_dict, corgie_optgroup, corgie_option
 from corgie.spec import spec_to_layer_dict_readonly
+import torch
 import json
 
 class MergeRenderJob(scheduling.Job):
@@ -25,15 +26,13 @@ class MergeRenderJob(scheduling.Job):
         
         Args:
             src_layers ({'img':{Layers},
-            src_masks ([Layer])
+            src_specs (json): list of dicts with img, field, mask, z, & mask_id per island
+                ranked by layer priority (first image overwrites later images)
             dst_layer (Stack)
             mip (int)
             pad (int)
             bcube (BoundingCube)
-            z_list ([int]): : ranked by layer priority (first image overwrites later images)
-            mask_ids ([int]) 
         """
-
         self.src_layers = src_layers
         self.src_specs = src_specs
         self.dst_layer = dst_layer
@@ -50,20 +49,29 @@ class MergeRenderJob(scheduling.Job):
                 chunk_z=1,
                 mip=self.mip)
 
-        tasks = [MergeRenderTask(
-                          src_layers=self.src_layers,
-                          src_specs=self.src_specs,
-                          dst_layer=self.dst_layer,
-                          mip=self.mip,
-                          pad=self.pad,
-                          bcube=input_chunk) for input_chunk in chunks]
+        if 'src_img' in self.src_specs[0]:
+            tasks = [MergeRenderImageTask(
+                            src_layers=self.src_layers,
+                            src_specs=self.src_specs,
+                            dst_layer=self.dst_layer,
+                            mip=self.mip,
+                            pad=self.pad,
+                            bcube=input_chunk) for input_chunk in chunks]
+        else:
+            tasks = [MergeRenderMaskTask(
+                            src_layers=self.src_layers,
+                            src_specs=self.src_specs,
+                            dst_layer=self.dst_layer,
+                            mip=self.mip,
+                            pad=self.pad,
+                            bcube=input_chunk) for input_chunk in chunks]
         corgie_logger.info(
             f"Yielding render tasks for bcube: {self.bcube}, MIP: {self.mip}")
 
         yield tasks
 
 
-class MergeRenderTask(scheduling.Task):
+class MergeRenderImageTask(scheduling.Task):
     def __init__(self, 
                  src_layers,
                  src_specs, 
@@ -117,6 +125,45 @@ class MergeRenderTask(scheduling.Task):
                 dst_img[cropped_mask] = cropped_img[cropped_mask]
 
         self.dst_layer.write(dst_img, bcube=self.bcube, mip=self.mip)
+
+class MergeRenderMaskTask(MergeRenderImageTask):
+    """Render multiple masks into the same destination mask, with option to relabel
+
+    Spec format:
+        {
+            'src_mask' (int)
+            'src_field' (int)
+            'mask_id' (int): the id of this mask in the source
+            'relabel_id' (int): the id of this mask in the destination (optional)
+            'src_z' (int)
+        }
+    """
+
+    def execute(self):
+        padded_bcube = self.bcube.uncrop(self.pad, self.mip)
+        for k, specs in enumerate(self.src_specs[::-1]):
+            z = specs['src_z']
+            mask_id = specs['mask_id']
+            bcube = padded_bcube.reset_coords(zs=z, ze=z+1, in_place=False)
+            imgs = {}
+            for name in ['src_mask', 'src_field']:
+                layer = self.src_layers[str(specs[name])]
+                if name == 'src_mask':
+                    layer.binarizer = helpers.Binarizer(['eq', mask_id])
+                imgs[name] = layer.read(bcube=bcube, mip=self.mip)
+            mask = residuals.res_warp_img(imgs['src_mask'].float(), 
+                                          imgs['src_field'])
+            mask = (mask > 0.4).bool()
+            cropped_mask = helpers.crop(mask, self.pad)
+            relabel_id = torch.as_tensor(specs.get('relabel_id', k), dtype=torch.uint8)
+            if k == 0:
+                dst_img = cropped_mask * relabel_id
+                dst_img[~cropped_mask] = 0
+            else:
+                dst_img[cropped_mask] = cropped_mask[cropped_mask] * relabel_id
+
+        self.dst_layer.write(dst_img, bcube=self.bcube, mip=self.mip)
+
 
 @click.command()
 @corgie_optgroup('Layer Parameters')
